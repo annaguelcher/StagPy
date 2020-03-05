@@ -16,7 +16,8 @@ FIELD = OrderedDict((
     ('v1', Varf('x Velocity', 'm/s')),
     ('v2', Varf('y Velocity', 'm/s')),
     ('v3', Varf('z Velocity', 'm/s')),
-    ('p', Varf('Pressure', 'Pa')),
+    ('p_d', Varf('Dynamic pressure', 'Pa')),
+    ('p_s', Varf('Static Pressure', 'Pa')),
     ('eta', Varf('Viscosity', 'Pa.s')),
     ('rho', Varf('Density', 'kg/m3')),
     ('rho4rhs', Varf('Density term in RHS', 'kg/m3')),
@@ -30,6 +31,8 @@ FIELD = OrderedDict((
     ('Tcond2', Varf('y Conductivity', 'W/(m.K)')),
     ('Tcond3', Varf('z Conductivity', 'W/(m.K)')),
     ('c', Varf('Composition', '1')),
+    ('bs', Varf('Basalt fraction', '1')),       #AG
+    ('prim', Varf('Primordial fraction', '1')), #AG
     ('cFe', Varf('FeO content', '1')),
     ('hpe', Varf('HPE content', '1')),
     ('wtr', Varf('Water concentration', '1')),
@@ -39,7 +42,7 @@ FIELD = OrderedDict((
     ('rs2', Varf('y Momentum residue', '1')),
     ('rs3', Varf('z Momentum residue', '1')),
     ('rsc', Varf('Continuity residue', '1')),
-))
+)) # AG: add fields that are needed! name, uitleg, units
 
 FIELD_EXTRA = OrderedDict((
     ('stream', Varf(processing.stream_function, 'm2/s')),
@@ -47,7 +50,7 @@ FIELD_EXTRA = OrderedDict((
 
 FIELD_FILES = OrderedDict((
     ('t', ['T']),
-    ('vp', ['v1', 'v2', 'v3', 'p']),
+    ('vp', ['v1', 'v2', 'v3', 'p_d']), #AG: p --> p_d
     ('c', ['c']),
     ('eta', ['eta']),
     ('rho', ['rho']),
@@ -60,12 +63,16 @@ FIELD_FILES = OrderedDict((
     ('sx', ['sx1', 'sx2', 'sx3', 's1val']),
     ('ed', ['edot']),
     ('tcond', ['Tcond1', 'Tcond2', 'Tcond3']),
-))
+    ('prim', ['prim']),      #AG
+    ('bs', ['bs']),          #AG
+    # static pressure?
+)) # also add here! name should be as stagYY output BINARY
 
 FIELD_FILES_H5 = OrderedDict((
     ('Temperature', ['T']),
     ('Velocity', ['v1', 'v2', 'v3']),
-    ('Dynamic_Pressure', ['p']),
+    ('Dynamic_Pressure', ['p_d']),
+    ('Pressure', ['p_s']),   #AG
     ('Composition', ['c']),
     ('IronContent', ['cFe']),
     ('HPE', ['hpe']),
@@ -80,7 +87,9 @@ FIELD_FILES_H5 = OrderedDict((
     ('Stress', ['sII']),
     ('PrincipalStressAxis', ['sx1', 'sx2', 'sx3']),
     ('StrainRate', ['edot']),
-))
+    ('Basalt', ['bs']),       #AG
+    ('Primordial', ['prim']), #AG 
+)) # AG: also add here! name should be as stagYY output
 
 SFIELD = OrderedDict((
     ('topo_top', Varf('Topography at top', 'm')),
