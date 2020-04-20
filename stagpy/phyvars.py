@@ -42,6 +42,9 @@ FIELD = OrderedDict((
     ('rs2', Varf('y Momentum residue', '1')),
     ('rs3', Varf('z Momentum residue', '1')),
     ('rsc', Varf('Continuity residue', '1')),
+    ('vstr', Varf('Viscous strain', '1')),      #AG
+    ('vstr_Hrate', Varf('Vstr healing rate', '1')),  #AG
+    ('vstr_Wrate', Varf('Vstr weakening rate', '1')),
 )) # AG: add fields that are needed! name, uitleg, units
 
 FIELD_EXTRA = OrderedDict((
@@ -63,8 +66,11 @@ FIELD_FILES = OrderedDict((
     ('sx', ['sx1', 'sx2', 'sx3', 's1val']),
     ('ed', ['edot']),
     ('tcond', ['Tcond1', 'Tcond2', 'Tcond3']),
-    ('prim', ['prim']),      #AG
-    ('bs', ['bs']),          #AG
+    ('prim', ['prim']),         #AG
+    ('bs', ['bs']),             #AG
+    ('vstrn', ['vstr']),        #AG
+    ('vshea', ['vstr_Hrate']),  #AG
+    ('vswea', ['vstr_Wrate']),  #AG
     # static pressure?
 )) # also add here! name should be as stagYY output BINARY
 
@@ -88,7 +94,10 @@ FIELD_FILES_H5 = OrderedDict((
     ('PrincipalStressAxis', ['sx1', 'sx2', 'sx3']),
     ('StrainRate', ['edot']),
     ('Basalt', ['bs']),       #AG
-    ('Primordial', ['prim']), #AG 
+    ('Primordial', ['prim']), #AG
+    ('Viscous_Strain', ['vstr']),   #AG 
+    ('Vstr_Hrate', ['vstr_Hrate']),           #AG
+    ('Vstr_Wrate', ['vstr_Wrate']),           #AG  
 )) # AG: also add here! name should be as stagYY output
 
 SFIELD = OrderedDict((
@@ -236,6 +245,7 @@ TIME_EXTRA = OrderedDict((
     ('dTdt', Vart(processing.dt_dt, r'dT/dt', 'K/s')),
     ('ebalance', Vart(processing.ebalance, r'$\mathrm{Nu}$', '1')),
     ('mobility', Vart(processing.mobility, 'Mobility', '1')),
+#AG    ('plateness', Vart(processing.plateness, 'Plateness', '1'))
 ))
 
 REFSTATE = OrderedDict((
