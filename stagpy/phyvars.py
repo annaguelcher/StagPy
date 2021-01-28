@@ -256,6 +256,7 @@ REFSTATE = OrderedDict((
     ('Cp', Varr('Heat capacity', 'Heat capacity', 'J/(kg.K)')),
     ('Tcond', Varr('Conductivity', 'Conductivity', 'W/(m.K)')),
     ('P', Varr('Pressure', 'Pressure', 'Pa')),
+    ('grav', Varr('Gravity', 'Gravity', 'm/s2')),
 ))
 
 Varp = namedtuple('Varp', ['description'])
@@ -283,6 +284,7 @@ SCALES = {
     '1/s': lambda scl: 1 / scl.time,
     'K/s': lambda scl: scl.temperature / scl.time,
     'm/s': lambda scl: scl.length / scl.time,
+    'm/s2': lambda scl: scl.length / scl.time**2,
 }
 
 PREFIXES = ('k', 'M', 'G')
