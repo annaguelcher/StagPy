@@ -27,7 +27,7 @@ class NoSnapshotError(StagpyError):
 
     def __init__(self, sdat):
         self.sdat = sdat
-        super().__init__('no snapshot found for {}'.format(sdat))
+        super().__init__(f'no snapshot found for {sdat}')
 
 
 class NoParFileError(StagpyError):
@@ -43,7 +43,7 @@ class NoParFileError(StagpyError):
 
     def __init__(self, parfile):
         self.parfile = parfile
-        super().__init__('{} file not found'.format(parfile))
+        super().__init__(f'{parfile} file not found')
 
 
 class NotAvailableError(StagpyError):
@@ -72,7 +72,7 @@ class ParsingError(StagpyError):
         super().__init__(faulty_file, msg)
 
 
-class InvalidTimestepError(StagpyError):
+class InvalidTimestepError(StagpyError, KeyError):
     """Raised when invalid time step is requested.
 
     Args:
@@ -95,6 +95,29 @@ class InvalidTimestepError(StagpyError):
         super().__init__(sdat, istep, msg)
 
 
+class InvalidSnapshotError(StagpyError, KeyError):
+    """Raised when invalid snapshot is requested.
+
+    Args:
+        sdat (:class:`~stagpy.stagyydata.StagyyData`): the StagyyData
+            instance for which the request was made.
+        isnap (int): the invalid snapshot index.
+        msg (str): the error message.
+
+    Attributes:
+        sdat (:class:`~stagpy.stagyydata.StagyyData`): the StagyyData
+            instance for which the request was made.
+        isnap (int): the invalid snapshot index.
+        msg (str): the error message.
+    """
+
+    def __init__(self, sdat, isnap, msg):
+        self.sdat = sdat
+        self.isnap = isnap
+        self.msg = msg
+        super().__init__(sdat, isnap, msg)
+
+
 class InvalidTimeFractionError(StagpyError):
     """Raised when invalid fraction of series is requested.
 
@@ -107,8 +130,7 @@ class InvalidTimeFractionError(StagpyError):
 
     def __init__(self, fraction):
         self.fraction = fraction
-        super().__init__('Fraction should be in (0,1] (received {})'
-                         .format(fraction))
+        super().__init__(f'Fraction should be in (0,1] (received {fraction})')
 
 
 class InvalidNfieldsError(StagpyError):
@@ -123,8 +145,7 @@ class InvalidNfieldsError(StagpyError):
 
     def __init__(self, nfields):
         self.nfields = nfields
-        super().__init__('nfields_max should be >5 (received {})'
-                         .format(nfields))
+        super().__init__(f'nfields_max should be >5 (received {nfields})')
 
 
 class InvalidZoomError(StagpyError):
@@ -139,8 +160,7 @@ class InvalidZoomError(StagpyError):
 
     def __init__(self, zoom):
         self.zoom = zoom
-        super().__init__('Zoom angle should be in [0,360] (received {})'
-                         .format(zoom))
+        super().__init__(f'Zoom angle should be in [0,360] (received {zoom})')
 
 
 class StagnantLidError(StagpyError):
@@ -157,7 +177,7 @@ class StagnantLidError(StagpyError):
 
     def __init__(self, sdat):
         self.sdat = sdat
-        super().__init__('Stagnant lid regime for {}'.format(sdat))
+        super().__init__(f'Stagnant lid regime for {sdat}')
 
 
 class MissingDataError(StagpyError, KeyError):

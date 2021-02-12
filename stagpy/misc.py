@@ -1,15 +1,10 @@
 """Miscellaneous definitions."""
 
 from inspect import getdoc
-import pathlib
-import shutil
-import tempfile
 
 import matplotlib.pyplot as plt
 
 from . import conf
-
-INT_FMT = '{:05d}'
 
 
 def out_name(stem, timestep=None):
@@ -29,7 +24,7 @@ def out_name(stem, timestep=None):
     if conf.core.shortname:
         return conf.core.outname
     if timestep is not None:
-        stem = (stem + INT_FMT).format(timestep)
+        stem = f'{stem}{timestep:05d}'
     return conf.core.outname + '_' + stem
 
 
@@ -45,10 +40,9 @@ def scilabel(value, precision=2):
     Returns:
         str: the scientific notation the specified value.
     """
-    fmt = '{{:.{}e}}'.format(precision)
-    man, exp = fmt.format(value).split('e')
+    man, exp = f'{value:.{precision}e}'.split('e')
     exp = int(exp)
-    return r'{}\times 10^{{{}}}'.format(man, exp)
+    return fr'{man}\times 10^{{{exp}}}'
 
 
 def saveplot(fig, *name_args, close=True, **name_kwargs):
@@ -64,7 +58,7 @@ def saveplot(fig, *name_args, close=True, **name_kwargs):
         name_kwargs: keyword arguments passed on to :func:`out_name`.
     """
     oname = out_name(*name_args, **name_kwargs)
-    fig.savefig('{}.{}'.format(oname, conf.plot.format),
+    fig.savefig(f'{oname}.{conf.plot.format}',
                 format=conf.plot.format, bbox_inches='tight')
     if close:
         plt.close(fig)
@@ -108,113 +102,50 @@ def list_of_vars(arg_plot):
     return [lov for lov in lovs if lov]
 
 
-def set_of_vars(lovs):
-    """Build set of variables from list.
+def find_in_sorted_arr(value, array, after=False):
+    """Return position of element in a sorted array.
 
-    Args:
-        lovs: nested lists of variables such as the one produced by
-            :func:`list_of_vars`.
     Returns:
-        set of str: flattened set of all the variables present in the
-        nested lists.
+        int: the maximum position i such as array[i] <= value.  If after is
+            True, it returns the min i such as value <= array[i] (or 0 if such
+            an indices does not exist).
     """
-    return set(var for pvars in lovs for svars in pvars for var in svars)
+    ielt = array.searchsorted(value)
+    if ielt == array.size:
+        ielt -= 1
+    if not after and array[ielt] != value and ielt > 0:
+        ielt -= 1
+    return ielt
 
 
-def get_rbounds(step):
-    """Radial or vertical position of boundaries.
+class CachedReadOnlyProperty:
+    """Descriptor implementation of read-only cached properties.
 
-    Args:
-        step (:class:`~stagpy.stagyydata._Step`): a step of a StagyyData
-            instance.
-    Returns:
-        tuple of floats: radial or vertical positions of boundaries of the
-        domain.
-    """
-    if step.geom is not None:
-        rcmb = step.geom.rcmb
-    else:
-        rcmb = step.sdat.par['geometry']['r_cmb']
-        if step.sdat.par['geometry']['shape'].lower() == 'cartesian':
-            rcmb = 0
-    rcmb = max(rcmb, 0)
-    return rcmb, rcmb + 1
+    Properties are cached as _cropped_{name} instance attribute.
 
+    This is preferable to using a combination of property and
+    functools.lru_cache since the cache is bound to instances and therefore get
+    GCd with the instance when the latter is no longer in use instead of
+    staying in the cache which would use the instance itself as its key.
 
-class InchoateFiles:
-    """Context manager handling files whose names are not known yet.
-
-    Example:
-        InchoateFiles is used here to manage three files::
-
-            with InchoateFiles(3) as incho:
-                # for convenience, incho[x] is the same as incho.fids[x]
-                incho[0].write('First file')
-                incho[1].write('Second file')
-                incho[2].write('Third file')
-
-                # the three files will be named 'tata', 'titi' and 'toto'
-                incho.fnames = ['tata', 'titi', 'toto']
-
-    Args:
-        nfiles (int): number of files. Defaults to 1.
-        tmp_prefix (str): prefix name of temporary files. Use this
-            parameter if you want to easily track down the temporary files
-            created by the manager.
+    This also has an advantage over @cached_property (Python>3.8): the property
+    is read-only instead of being writeable.
     """
 
-    def __init__(self, nfiles=1, tmp_prefix=None):
-        self._fnames = ['inchoate{}'.format(i) for i in range(nfiles)]
-        self._tmpprefix = tmp_prefix
-        self._fids = []
+    def __init__(self, thunk):
+        self._thunk = thunk
+        self._name = thunk.__name__
+        self._cache_name = f'_cropped_{self._name}'
 
-    @property
-    def fids(self):
-        """List of files id.
+    def __get__(self, instance, _):
+        try:
+            return getattr(instance, self._cache_name)
+        except AttributeError:
+            pass
+        cached_value = self._thunk(instance)
+        setattr(instance, self._cache_name, cached_value)
+        return cached_value
 
-        Use this to perform operations on files when the context manager is
-        used. :meth:`InchoateFiles.__getitem__` is implemented in order to
-        provide direct access to this property content (``self[x]`` is the
-        same as ``self.fids[x]``).
-        """
-        return self._fids
-
-    @property
-    def fnames(self):
-        """List of filenames.
-
-        Set this to the list of final filenames before exiting the context
-        manager. If this list is not set by the user, the produced files will
-        be named ``'inchoateN'`` with ``N`` the index of the file. If the list
-        of names you set is too long, it will be truncated. If it is too short,
-        extra files will be named ``'inchoateN'``.
-        """
-        return self._fnames
-
-    @fnames.setter
-    def fnames(self, names):
-        """Ensure constant size of fnames."""
-        names = list(names[:len(self._fnames)])
-        self._fnames = names + self._fnames[len(names):]
-
-    def __getitem__(self, idx):
-        return self._fids[idx]
-
-    def __enter__(self):
-        """Create temporary files."""
-        for fname in self.fnames:
-            pfx = fname if self._tmpprefix is None else self._tmpprefix
-            self._fids.append(
-                tempfile.NamedTemporaryFile(
-                    mode='w', prefix=pfx, delete=False))
-        return self
-
-    def __exit__(self, *exc_info):
-        """Give temporary files their final names."""
-        for tmp in self._fids:
-            tmp.close()
-        if exc_info[0] is None:
-            for fname, tmp in zip(self.fnames, self._fids):
-                shutil.copyfile(tmp.name, fname)
-        for tmp in self._fids:
-            pathlib.Path(tmp.name).unlink()
+    def __set__(self, instance, _):
+        raise AttributeError(
+            f'Cannot set {self._name} property of {instance!r}')

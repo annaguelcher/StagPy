@@ -16,7 +16,7 @@ def _actual_index(arg):
     if ':' in arg:
         idxs = arg.split(':')
         if len(idxs) > 3:
-            raise ValueError('{} is an invalid slice'.format(arg))
+            raise ValueError(f'{arg} is an invalid slice')
         idxs[0] = int(idxs[0]) if idxs[0] else None
         idxs[1] = int(idxs[1]) if idxs[1] else None
         if len(idxs) == 3:
@@ -112,6 +112,8 @@ CONF_DEF['field'] = OrderedDict((
                 False, 'y-index of slice for 3D fields')),
     ('iz', Conf(None, True, None, {'type': int},
                 False, 'z-index of slice for 3D fields')),
+    ('isocolors', Conf('', True, None, {}, True,
+                       'comma-separated list of colors for isolines')),
     ('cmap',
         Conf({'T': 'RdBu_r',
               'eta': 'viridis_r',
@@ -142,7 +144,9 @@ CONF_DEF['time'] = OrderedDict((
     ('style',
         Conf('-', True, None, {},
              True, 'matplotlib line style')),
-    ('compstat', switch_opt(False, None, 'compute steady state statistics')),
+    ('compstat',
+        Conf('', True, None, {'nargs': '?', 'const': ''},
+             False, 'compute mean and rms of listed variables')),
     ('tstart',
         Conf(None, True, None, {'type': float},
              False, 'beginning time')),

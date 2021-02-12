@@ -21,6 +21,7 @@ FIELD = OrderedDict((
     ('eta', Varf('Viscosity', 'Pa.s')),
     ('rho', Varf('Density', 'kg/m3')),
     ('rho4rhs', Varf('Density term in RHS', 'kg/m3')),
+    ('trarho', Varf('Density from tracer mass', 'kg/m3')),
     ('sII', Varf('Second invariant of stress tensor', 'Pa')),
     ('sx1', Varf('1st comp. of principal stress eigenvector', 'Pa')),
     ('sx2', Varf('2nd comp. of principal stress eigenvector', 'Pa')),
@@ -85,6 +86,7 @@ FIELD_FILES_H5 = OrderedDict((
     ('Viscosity', ['eta']),
     ('Density', ['rho']),
     ('Density4rhs', ['rho4rhs']),
+    ('TraBasedDensity', ['trarho']),
     ('water', ['wtr']),
     ('Age', ['age']),
     ('ContinentNumber', ['contID']),
@@ -121,6 +123,20 @@ SFIELD_FILES = OrderedDict((
     ('hf', ['fbot', 'ftop']),
     ('hfs', ['fsbot', 'fstop']),
     ('cr', ['crust']),
+))
+
+SFIELD_FILES_H5 = OrderedDict((
+    ('BottomTopography', ['topo_bot']),
+    ('SurfaceTopography', ['topo_top']),
+    ('BottomGeoid', ['geoid_bot']),
+    ('TopGeoid', ['geoid_top']),
+    ('BottomCSGeoid', ['topo_g_bot']),
+    ('TopCSGeoid', ['topo_g_top']),
+    ('BottomHeatFlux', ['fbot']),
+    ('TopHeatFlux', ['ftop']),
+    ('BottomHFSpectrum', ['fsbot']),
+    ('TopHFSpectrum', ['fstop']),
+    ('CrustThickness', ['crust']),
 ))
 
 Varr = namedtuple('Varr', ['description', 'kind', 'dim'])
@@ -194,7 +210,6 @@ RPROF = OrderedDict((
 ))
 
 RPROF_EXTRA = OrderedDict((
-    ('redges', Varr(processing.r_edges, 'Radius', 'm')),
     ('dr', Varr(processing.delta_r, 'dr', 'm')),
     ('diff', Varr(processing.diff_prof, 'Heat flux', 'W/m2')),
     ('diffs', Varr(processing.diffs_prof, 'Heat flux', 'W/m2')),

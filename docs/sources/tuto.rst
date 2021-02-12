@@ -21,6 +21,7 @@ This means a minimal call to StagPy is as follow::
 ``<subcommand>`` can be one of the following:
 
 * ``field``: plot scalar fields such as temperature or stream function;
+* ``refstate``: plot reference state;
 * ``rprof``: plot radial profiles;
 * ``time``: plot time series;
 * ``plates``: perform plate analysis;
@@ -86,7 +87,7 @@ Instantiating and using this class is rather simple::
     sdat = StagyyData('path/to/run/')
 
     # absolute vertical velocity profile of last snapshot
-    last_v_prof = sdat.snaps[-1].rprof['vzabs']
+    last_v_prof = sdat.snaps[-1].rprof['vzabs'].values
 
     # temperature field of the 10000th time step
     # (will be None if no snapshot is available at this timestep)

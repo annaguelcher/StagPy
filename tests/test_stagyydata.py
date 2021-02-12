@@ -35,11 +35,11 @@ def test_sdat_par(sdat):
 
 
 def test_sdat_tseries(sdat):
-    assert isinstance(sdat.tseries, pandas.DataFrame)
+    assert sdat.tseries['Tmean'].time is sdat.tseries.time
 
 
-def test_sdat_rprof(sdat):
-    assert isinstance(sdat.rprof, pandas.DataFrame)
+def test_sdat_rtimes(sdat):
+    assert isinstance(sdat.rtimes, pandas.DataFrame)
 
 
 def test_sdat_walk_dflt(sdat):
@@ -72,8 +72,8 @@ def test_snaps_last(sdat):
 
 
 def test_snaps_empty(sdat):
-    empty = sdat.snaps[len(sdat.snaps)]
-    assert isinstance(empty, stagpy._step.EmptyStep)
+    with pytest.raises(stagpy.error.InvalidSnapshotError):
+        sdat.snaps[len(sdat.snaps)]
 
 
 def test_step_is_snap(sdat):
@@ -93,5 +93,8 @@ def test_geom_refs(step):
     assert step.geom is step.fields.geom
 
 
-def test_geom_twod(step):
+def test_geom(step):
     assert step.geom.twod
+    assert not step.geom.threed
+    assert not step.geom.yinyang
+    assert step.geom.cartesian is not step.geom.spherical

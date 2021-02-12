@@ -7,19 +7,14 @@ Note:
 """
 
 from collections.abc import Mapping
+from collections import namedtuple
 from itertools import chain
 import re
 
 import numpy as np
 
-from . import error, phyvars, stagyyparsers
-
-
-UNDETERMINED = object()
-# dummy object with a unique identifier,
-# useful to mark stuff as yet undetermined,
-# as opposed to either some value or None if
-# non existent
+from . import error, misc, phyvars, stagyyparsers
+from .misc import CachedReadOnlyProperty as crop
 
 
 class _Geometry:
@@ -83,12 +78,12 @@ class _Geometry:
                 self._coords[0] = np.array(np.pi / 2)
             elif self.twod_xz:
                 self._coords[1] = np.array(0)
-            r_coord = self.z_coord + self.rcmb
+            self._coords[2] += self.rcmb
             if par['magma_oceans_in']['magma_oceans_mode']:
-                r_coord += header['mo_lambda']
-                r_coord *= header['mo_thick_sol']
+                self._coords[2] += header['mo_lambda']
+                self._coords[2] *= header['mo_thick_sol']
             t_mesh, p_mesh, r_mesh = np.meshgrid(
-                self.x_coord, self.y_coord, r_coord, indexing='ij')
+                self.t_coord, self.p_coord, self.r_coord, indexing='ij')
             # compute cartesian coordinates
             # z along rotation axis at theta=0
             # x at th=90, phi=0
@@ -166,9 +161,19 @@ class _Geometry:
     def at_z(self, zval):
         """Return iz closest to given zval position.
 
-        This is different than radial position in spherical geometry.
+        In spherical geometry, the bottom boundary is considered to be at z=0.
+        Use :meth:`at_r` to find a cell at a given radial position.
         """
+        if self.curvilinear:
+            zval += self.rcmb
         return np.argmin(np.abs(self.z_coord - zval))
+
+    def at_r(self, rval):
+        """Return ir closest to given rval position.
+
+        If called in cartesian geometry, this is equivalent to :meth:`at_z`.
+        """
+        return np.argmin(np.abs(self.r_coord - rval))
 
     def __getattr__(self, attr):
         # provide nDtot, D_coord, D_mesh and nbtot
@@ -198,8 +203,6 @@ class _Fields(Mapping):
 
     def __init__(self, step, variables, extravars, files, filesh5):
         self.step = step
-        self._header = UNDETERMINED
-        self._geom = UNDETERMINED
         self._vars = variables
         self._extra = extravars
         self._files = files
@@ -218,17 +221,17 @@ class _Fields(Mapping):
         else:
             raise error.UnknownFieldVarError(name)
         if parsed_data is None:
-            raise error.MissingDataError('Missing field {} in step {}'
-                                         .format(name, self.step.istep))
+            raise error.MissingDataError(
+                f'Missing field {name} in step {self.step.istep}')
         header, fields = parsed_data
-        self._header = header
+        self._cropped__header = header
         for fld_name, fld in zip(fld_names, fields):
             if self._header['xyp'] == 0:
                 if not self.geom.twod_yz:
-                    newline = (fld[:1, :, :, :] + fld[-1:, :, :, :]) / 2
+                    newline = (fld[:1, ...] + fld[-1:, ...]) / 2
                     fld = np.concatenate((fld, newline), axis=0)
                 if not self.geom.twod_xz:
-                    newline = (fld[:, :1, :, :] + fld[:, -1:, :, :]) / 2
+                    newline = (fld[:, :1, ...] + fld[:, -1:, ...]) / 2
                     fld = np.concatenate((fld, newline), axis=1)
             self._set(fld_name, fld)
         return self._data[name]
@@ -267,8 +270,15 @@ class _Fields(Mapping):
             for filestem, list_fvar in self._filesh5.items():
                 if name in list_fvar:
                     break
+            if filestem in phyvars.SFIELD_FILES_H5:
+                xmff = 'Data{}.xmf'.format(
+                    'Bottom' if name.endswith('bot') else 'Surface')
+                header = self._header
+            else:
+                xmff = 'Data.xmf'
+                header = None
             parsed_data = stagyyparsers.read_field_h5(
-                self.step.sdat.hdf5 / 'Data.xmf', filestem, self.step.isnap)
+                self.step.sdat.hdf5 / xmff, filestem, self.step.isnap, header)
         return list_fvar, parsed_data
 
     def _set(self, name, fld):
@@ -285,7 +295,16 @@ class _Fields(Mapping):
         if name in self._data:
             del self._data[name]
 
-    @property
+    @crop
+    def _header(self):
+        binfiles = self.step.sdat._binfiles_set(self.step.isnap)
+        if binfiles:
+            return stagyyparsers.fields(binfiles.pop(), only_header=True)
+        elif self.step.sdat.hdf5:
+            xmf = self.step.sdat.hdf5 / 'Data.xmf'
+            return stagyyparsers.read_geom_h5(xmf, self.step.isnap)[0]
+
+    @crop
     def geom(self):
         """Geometry information.
 
@@ -293,23 +312,8 @@ class _Fields(Mapping):
         issued from binary files holding field information. It is set to
         None if not available for this time step.
         """
-        if self._header is UNDETERMINED:
-            binfiles = self.step.sdat._binfiles_set(self.step.isnap)
-            if binfiles:
-                self._header = stagyyparsers.fields(binfiles.pop(),
-                                                    only_header=True)
-            elif self.step.sdat.hdf5:
-                xmf = self.step.sdat.hdf5 / 'Data.xmf'
-                self._header, _ = stagyyparsers.read_geom_h5(xmf,
-                                                             self.step.isnap)
-            else:
-                self._header = None
-        if self._geom is UNDETERMINED:
-            if self._header is None:
-                self._geom = None
-            else:
-                self._geom = _Geometry(self._header, self.step.sdat.par)
-        return self._geom
+        if self._header is not None:
+            return _Geometry(self._header, self.step.sdat.par)
 
 
 class _Tracers:
@@ -350,6 +354,101 @@ class _Tracers:
 
     def __iter__(self):
         raise TypeError('tracers collection is not iterable')
+
+
+Rprof = namedtuple('Rprof', ['values', 'rad', 'meta'])
+
+
+class _Rprofs:
+    """Radial profiles data structure.
+
+    The :attr:`Step.rprofs` attribute is an instance of this class.
+
+    :class:`_Rprofs` implements the getitem mechanism.  Keys are profile names
+    defined in :data:`stagpy.phyvars.RPROF[_EXTRA]`.  An item is a named tuple
+    ('values', 'rad', 'meta'), respectively the profile itself, the radial
+    position at which it is evaluated, and meta is a
+    :class:`stagpy.phyvars.Varr` instance with relevant metadata.  Note that
+    profiles are automatically scaled if conf.scaling.dimensional is True.
+
+    Attributes:
+        step (:class:`Step`): the step object owning the :class:`_Rprofs`
+            instance
+    """
+
+    def __init__(self, step):
+        self.step = step
+        self._cached_extra = {}
+
+    @crop
+    def _data(self):
+        step = self.step
+        return step.sdat._rprof_and_times[0].get(step.istep)
+
+    @property
+    def _rprofs(self):
+        if self._data is None:
+            step = self.step
+            raise error.MissingDataError(
+                f'No rprof data in step {step.istep} of {step.sdat}')
+        return self._data
+
+    def __getitem__(self, name):
+        step = self.step
+        if name in self._rprofs.columns:
+            rprof = self._rprofs[name].values
+            rad = self.centers
+            if name in phyvars.RPROF:
+                meta = phyvars.RPROF[name]
+            else:
+                meta = phyvars.Varr(name, None, '1')
+        elif name in self._cached_extra:
+            rprof, rad, meta = self._cached_extra[name]
+        elif name in phyvars.RPROF_EXTRA:
+            meta = phyvars.RPROF_EXTRA[name]
+            rprof, rad = meta.description(step)
+            meta = phyvars.Varr(misc.baredoc(meta.description),
+                                meta.kind, meta.dim)
+            self._cached_extra[name] = rprof, rad, meta
+        else:
+            raise error.UnknownRprofVarError(name)
+        rprof, _ = step.sdat.scale(rprof, meta.dim)
+        rad, _ = step.sdat.scale(rad, 'm')
+
+        return Rprof(rprof, rad, meta)
+
+    @crop
+    def centers(self):
+        """Radial position of cell centers."""
+        return self._rprofs['r'].values + self.bounds[0]
+
+    @crop
+    def walls(self):
+        """Radial position of cell walls."""
+        rbot, rtop = self.bounds
+        centers = self.centers
+        # assume walls are mid-way between T-nodes
+        # could be T-nodes at center between walls
+        walls = (centers[:-1] + centers[1:]) / 2
+        walls = np.insert(walls, 0, rbot)
+        walls = np.append(walls, rtop)
+        return walls
+
+    @crop
+    def bounds(self):
+        """Radial or vertical position of boundaries.
+
+        Radial/vertical positions of boundaries of the domain.
+        """
+        step = self.step
+        if step.geom is not None:
+            rcmb = step.geom.rcmb
+        else:
+            rcmb = step.sdat.par['geometry']['r_cmb']
+            if step.sdat.par['geometry']['shape'].lower() == 'cartesian':
+                rcmb = 0
+        rcmb = max(rcmb, 0)
+        return rcmb, rcmb + 1
 
 
 class Step:
@@ -396,9 +495,16 @@ class Step:
         self.fields = _Fields(self, phyvars.FIELD, phyvars.FIELD_EXTRA,
                               phyvars.FIELD_FILES, phyvars.FIELD_FILES_H5)
         self.sfields = _Fields(self, phyvars.SFIELD, [],
-                               phyvars.SFIELD_FILES, [])
+                               phyvars.SFIELD_FILES, phyvars.SFIELD_FILES_H5)
         self.tracers = _Tracers(self)
-        self._isnap = UNDETERMINED
+        self.rprofs = _Rprofs(self)
+        self._isnap = -1
+
+    def __repr__(self):
+        if self.isnap is not None:
+            return f'{self.sdat!r}.snaps[{self.isnap}]'
+        else:
+            return f'{self.sdat!r}.steps[{self.istep}]'
 
     @property
     def geom(self):
@@ -412,23 +518,23 @@ class Step:
 
     @property
     def timeinfo(self):
-        """Time series data of the time step.
-
-        Set to None if no time series data is available for this time step.
-        """
-        if self.istep not in self.sdat.tseries.index:
-            return None
-        return self.sdat.tseries.loc[self.istep]
+        """Time series data of the time step."""
+        try:
+            info = self.sdat.tseries.at_step(self.istep)
+        except KeyError:
+            raise error.MissingDataError(f'No time series for {self!r}')
+        return info
 
     @property
-    def rprof(self):
-        """Radial profiles data of the time step.
-
-        Set to None if no radial profiles data is available for this time step.
-        """
-        if self.istep not in self.sdat.rprof.index.levels[0]:
-            return None
-        return self.sdat.rprof.loc[self.istep]
+    def time(self):
+        """Time of this time step."""
+        steptime = None
+        try:
+            steptime = self.timeinfo['t']
+        except error.MissingDataError:
+            if self.isnap is not None:
+                steptime = self.geom.ti_ad
+        return steptime
 
     @property
     def isnap(self):
@@ -436,7 +542,7 @@ class Step:
 
         It is set to None if no snapshot exists for the time step.
         """
-        if self._isnap is UNDETERMINED:
+        if self._isnap == -1:
             istep = None
             isnap = -1
             # could be more efficient if do 0 and -1 then bisection
@@ -444,25 +550,11 @@ class Step:
             # memory for what it's worth if search algo is efficient)
             while (istep is None or istep < self.istep) and isnap < 99999:
                 isnap += 1
-                istep = self.sdat.snaps[isnap].istep
+                try:
+                    istep = self.sdat.snaps[isnap].istep
+                except KeyError:
+                    pass
                 # all intermediate istep could have their ._isnap to None
             if istep != self.istep:
                 self._isnap = None
         return self._isnap
-
-
-class EmptyStep(Step):
-    """Dummy step object for nonexistent snaps.
-
-    This class inherits from :class:`Step`, but its :meth:`__getattribute__`
-    method always return :obj:`None`. Its instances are falsy values.
-    """
-
-    def __init__(self):
-        super().__init__(None, None)
-
-    def __getattribute__(self, name):
-        return None
-
-    def __bool__(self):
-        return False

@@ -2,7 +2,7 @@
 
 StagPy is both a CLI tool and a powerful Python library. See the
 documentation at
-http://stagpy.readthedocs.io/en/stable/
+https://stagpy.readthedocs.io/en/stable/
 
 If the environment variable STAGPY_ISOLATED is set to a truthy value, StagPy
 does not attempt to read any configuration file (including mplstyle).
@@ -86,8 +86,7 @@ def load_mplstyle():
             try:
                 plt.style.use(style)
             except OSError:
-                print('Cannot import style {}.'.format(style),
-                      file=sys.stderr)
+                print(f'Cannot import style {style}.', file=sys.stderr)
                 conf.plot.mplstyle = ''
     if conf.plot.xkcd:
         plt.xkcd()

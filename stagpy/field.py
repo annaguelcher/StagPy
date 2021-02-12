@@ -203,7 +203,7 @@ def plot_scalar(step, var, field=None, axis=None, **extra):
         cbar = plt.colorbar(surf, cax=cax)
         cbar.set_label(meta.description +
                        (' pert.' if conf.field.perturbation else '') +
-                       (' ({})'.format(unit) if unit else ''))
+                       (f' ({unit})' if unit else ''))
     if step.geom.spherical or conf.plot.ratio is None:
         axis.set_aspect('equal')
         axis.set_axis_off()
@@ -216,7 +216,7 @@ def plot_scalar(step, var, field=None, axis=None, **extra):
     return fig, axis, surf, cbar
 
 
-def plot_iso(axis, step, var):
+def plot_iso(axis, step, var, **extra):
     """Plot isocontours of scalar field.
 
     Args:
@@ -226,11 +226,19 @@ def plot_iso(axis, step, var):
         step (:class:`~stagpy.stagyydata._Step`): a step of a StagyyData
             instance.
         var (str): the scalar field name.
+        extra (dict): options that will be passed on to
+            :func:`matplotlib.axes.Axes.contour`.
     """
     xmesh, ymesh, fld = get_meshes_fld(step, var)
     if conf.field.shift:
         fld = np.roll(fld, conf.field.shift, axis=0)
-    axis.contour(xmesh, ymesh, fld, linewidths=1)
+    extra_opts = dict(linewidths=1)
+    if 'cmap' not in extra and conf.field.isocolors:
+        extra_opts['colors'] = conf.field.isocolors.split(',')
+    elif 'colors' not in extra:
+        extra_opts['cmap'] = conf.field.cmap.get(var)
+    extra_opts.update(extra)
+    axis.contour(xmesh, ymesh, fld, **extra_opts)
 
 
 def plot_vec(axis, step, var):
@@ -301,8 +309,7 @@ def cmd():
                                      figsize=(9 * len(vfig), 6))
             for axis, var in zip(axes[0], vfig):
                 if var[0] not in step.fields:
-                    print("'{}' field on snap {} not found".format(var[0],
-                                                                   step.isnap))
+                    print(f"{var[0]!r} field on snap {step.isnap} not found")
                     continue
                 opts = {}
                 if var[0] in minmax:
@@ -316,7 +323,7 @@ def cmd():
             if conf.field.timelabel:
                 time, unit = sdat.scale(step.timeinfo['t'], 's')
                 time = misc.scilabel(time)
-                axes[0, 0].text(0.02, 1.02, '$t={}$ {}'.format(time, unit),
+                axes[0, 0].text(0.02, 1.02, f'$t={time}$ {unit}',
                                 transform=axes[0, 0].transAxes)
             oname = '_'.join(chain.from_iterable(vfig))
             plt.tight_layout(w_pad=3)

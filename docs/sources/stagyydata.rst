@@ -86,59 +86,49 @@ are given a default value according to the par file ``~/.config/stagpy/par``.
 Radial profiles
 ---------------
 
-Radial profile data are contained in the
-:attr:`~stagpy.stagyydata.StagyyData.rprof` attribute of a
-:class:`~stagpy.stagyydata.StagyyData` instance.  This attribute is a
-:class:`pandas.DataFrame`. Its :attr:`columns` are the names of available
-variables (such as e.g. ``'Tmean'`` and ``'ftop'``).  Its :attr:`index` is a 2
-levels multi-index, the first level being the time step number (:attr:`istep`),
-and the second level being the cells number (from ``0`` to ``nz-1``). The list
-of available variables can be obtained by running ``% stagpy var``.
+Radial profile data are accessible trough the :attr:`~stagpy._step.Step.rprofs`
+attribute of a :class:`~stagpy._step.Step` instance.  This attribute implements
+getitem to access radial profiles.  Keys are the names of available
+variables (such as e.g. ``'Tmean'`` and ``'vzabs'``).  Items are named tuples
+with three fields:
 
-The radial profile of a given time step can be accessed from :attr:`_Step.rprof
-<stagpy.stagyydata._Step.rprof>`. For example, ``sdat.steps[1000].rprof`` is
-equivalent to ``sdat.rprof.loc[1000]``. The columns of the obtained dataframe
-are the variable names, and its index is the cells number.
+- :data:`values`: the profile itself;
+- :data:`rad`: the radial position at which the profile is evaluated;
+- :data:`meta`: metadata of the profile, also a named tuple with:
 
-As an example, the following lines are two ways of accessing the horizontal
-average temperature in the bottom cell, at the 1000th timestep::
+    - :data:`description`: explanation of what the profile is;
+    - :data:`kind`: the category of profile;
+    - :data:`dim`: the dimension of the profile (if applicable) in SI units.
 
-    # extract rprof data for the 1000th timestep,
-    # and then take the temperature in the bottom cell
-    sdat.rprof.loc[1000].loc[0,'Tmean']
-    # extract the temperature profile for the 1000th timestep,
-    # and then take the bottom cell
-    sdat.rprof.loc[1000,'Tmean'][0]
+The list of available variables can be obtained by running ``% stagpy var``.
 
-If the radial profiles of the 1000th timestep are not available, these would
-both result in a ``KeyError``.
+For example, ``sdat.steps[1000].rprofs['Tmean']`` is the temperature profile of
+the 1000th timestep.
 
 Time series
 -----------
 
-Temporal data are contained in the
+Temporal data are accessible through the
 :attr:`~stagpy.stagyydata.StagyyData.tseries` attribute of a
-:class:`~stagpy.stagyydata.StagyyData` instance. This attribute is a
-:class:`pandas.DataFrame`. Its :attr:`columns` are the names of available
-variables. Its :attr:`index` is the time steps number (:attr:`istep`). The list
-of available variables can be obtained by running ``% stagpy var``.
+:class:`~stagpy.stagyydata.StagyyData` instance. This attribute implements
+getitem to access time series.  Keys are the names of available variables
+(such as e.g. ``'Tmean'`` and ``'ftop'``).  Items are named tuples with
+three fields:
 
-The temporal data of a given time step can be accessed from
-:attr:`_Step.timeinfo <stagpy.stagyydata._Step.timeinfo>`.  For example,
-``sdat.steps[1000].timeinfo`` is equivalent to ``sdat.tseries.loc[1000]``. Both
-are :class:`pandas.Series` indexed by the available variables.
+- :data:`values`: the series itself;
+- :data:`time`: the times at which the series is evaluated;
+- :data:`meta`: metadata of the series, also a named tuple with:
 
-As an example, the following lines are three ways of accessing the average
-temperature at the 1000th timestep::
+    - :data:`description`: explanation of what the series is;
+    - :data:`kind`: the category of series;
+    - :data:`dim`: the dimension of the series (if applicable) in SI units.
 
-    # extract time series info available for the 1000th timestep,
-    # and then take the average temperature
-    sdat.steps[1000].timeinfo['Tmean']
-    # extract the temperature time series,
-    # and then take the 1000th timestep
-    sdat.tseries['Tmean'][1000]
-    # direct access to the wanted info
-    sdat.tseries.loc[1000, 'Tmean']
+The list of available variables can be obtained by running ``% stagpy var``.
+
+The time series data at a given time step can be accessed from
+:attr:`Step.timeinfo <stagpy._step.Step.timeinfo>`.  For example,
+``sdat.steps[1000].timeinfo`` is equivalent to ``sdat.tseries.at_step(1000)``.
+Both are :class:`pandas.Series` indexed by the available variables.
 
 
 Geometry

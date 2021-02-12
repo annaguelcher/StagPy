@@ -9,10 +9,13 @@ Note:
 
 import re
 import pathlib
+from collections import namedtuple
 from itertools import zip_longest
 
-from . import conf, error, parfile, phyvars, stagyyparsers, _step
-from ._step import UNDETERMINED
+import numpy as np
+
+from . import conf, error, misc, parfile, phyvars, stagyyparsers, _step
+from .misc import CachedReadOnlyProperty as crop
 
 
 def _as_view_item(obj):
@@ -107,15 +110,15 @@ class _Refstate:
 
     def __init__(self, sdat):
         self._sdat = sdat
-        self._data = UNDETERMINED
 
-    def _read_refstate(self):
+    @crop
+    def _data(self):
         """Read reference state profile."""
         reffile = self._sdat.filename('refstat.dat')
         if self._sdat.hdf5 and not reffile.is_file():
             # check legacy folder as well
             reffile = self._sdat.filename('refstat.dat', force_legacy=True)
-        self._data = stagyyparsers.refstate(reffile)
+        return stagyyparsers.refstate(reffile)
 
     @property
     def systems(self):
@@ -130,8 +133,6 @@ class _Refstate:
 
             >>> sdat.refstate.systems[0][2]['T']
         """
-        if self._data is UNDETERMINED:
-            self._read_refstate()
         return self._data[0]
 
     @property
@@ -151,9 +152,147 @@ class _Refstate:
 
             >>> sdat.refstate.adiabats[-1]['rho']
         """
-        if self._data is UNDETERMINED:
-            self._read_refstate()
         return self._data[1]
+
+
+Tseries = namedtuple('Tseries', ['values', 'time', 'meta'])
+
+
+class _Tseries:
+    """Time series.
+
+    The :attr:`StagyyData.tseries` attribute is an instance of this class.
+
+    :class:`_Tseries` implements the getitem mechanism.  Keys are series names
+    defined in :data:`stagpy.phyvars.TIME[_EXTRA]`.  An item is a named tuple
+    ('values', 'time', 'meta'), respectively the series itself, the time at
+    which it is evaluated, and meta is a :class:`stagpy.phyvars.Vart` instance
+    with relevant metadata.  Note that series are automatically scaled if
+    conf.scaling.dimensional is True.
+
+    Attributes:
+        sdat (:class:`StagyyData`): the StagyyData instance owning the
+            :class:`_Tseries` instance.
+    """
+
+    def __init__(self, sdat):
+        self.sdat = sdat
+        self._cached_extra = {}
+
+    @crop
+    def _data(self):
+        timefile = self.sdat.filename('TimeSeries.h5')
+        data = stagyyparsers.time_series_h5(
+            timefile, list(phyvars.TIME.keys()))
+        if data is not None:
+            return data
+        timefile = self.sdat.filename('time.dat')
+        if self.sdat.hdf5 and not timefile.is_file():
+            # check legacy folder as well
+            timefile = self.sdat.filename('time.dat', force_legacy=True)
+        data = stagyyparsers.time_series(timefile, list(phyvars.TIME.keys()))
+        return data
+
+    @property
+    def _tseries(self):
+        if self._data is None:
+            raise error.MissingDataError(f'No tseries data in {self.sdat}')
+        return self._data
+
+    def __getitem__(self, name):
+        if name in self._tseries.columns:
+            series = self._tseries[name].values
+            time = self.time
+            if name in phyvars.TIME:
+                meta = phyvars.TIME[name]
+            else:
+                meta = phyvars.Vart(name, None, '1')
+        elif name in self._cached_extra:
+            series, time, meta = self._cached_extra[name]
+        elif name in phyvars.TIME_EXTRA:
+            meta = phyvars.TIME_EXTRA[name]
+            series, time = meta.description(self.sdat)
+            meta = phyvars.Vart(misc.baredoc(meta.description),
+                                meta.kind, meta.dim)
+            self._cached_extra[name] = series, time, meta
+        else:
+            raise error.UnknownTimeVarError(name)
+        series, _ = self.sdat.scale(series, meta.dim)
+        time, _ = self.sdat.scale(time, 's')
+        return Tseries(series, time, meta)
+
+    def tslice(self, name, tstart=None, tend=None):
+        """Return a Tseries between specified times.
+
+        Args:
+            name (str): time variable.
+            tstart (float): starting time. Set to None to start at the
+                beginning of available data.
+            tend (float): ending time. Set to None to stop at the end of
+                available data.
+        """
+        data, time, meta = self[name]
+        istart = 0
+        iend = len(time)
+        if tstart is not None:
+            istart = misc.find_in_sorted_arr(tstart, time)
+        if tend is not None:
+            iend = misc.find_in_sorted_arr(tend, time, True) + 1
+        return Tseries(data[istart:iend], time[istart:iend], meta)
+
+    @property
+    def time(self):
+        """Time vector."""
+        return self._tseries['t'].values
+
+    @property
+    def isteps(self):
+        """Step indices.
+
+        This is such that time[istep] is at step isteps[istep].
+        """
+        return self._tseries.index.values
+
+    def at_step(self, istep):
+        """Time series output for a given step."""
+        return self._tseries.loc[istep]
+
+
+class _RprofsAveraged(_step._Rprofs):
+    """Radial profiles time-averaged over a :class:`_StepsView`.
+
+    The :attr:`_StepsView.rprofs_averaged` attribute is an instance of this
+    class.
+
+    It implements the same interface as :class:`~stagpy._step._Rprofs` but
+    returns time-averaged profiles instead.
+
+    Attributes:
+        steps (:class:`_StepsView`): the object owning the
+            :class:`_RprofsAveraged` instance
+    """
+
+    def __init__(self, steps):
+        self.steps = steps.filter(rprofs=True)
+        self._cached_data = {}
+        super().__init__(next(iter(self.steps)))
+
+    def __getitem__(self, name):
+        # the averaging method has two shortcomings:
+        # - does not take into account time changing geometry;
+        # - does not take into account time changing timestep.
+        if name in self._cached_data:
+            return self._cached_data[name]
+        steps_iter = iter(self.steps)
+        rprof, rad, meta = next(steps_iter).rprofs[name]
+        rprof = np.copy(rprof)
+        nprofs = 1
+        for step in steps_iter:
+            nprofs += 1
+            rprof += step.rprofs[name].values
+        rprof /= nprofs
+        self._cached_data[name] = _step.Rprof(rprof, rad, meta)
+        return self._cached_data[name]
 
 
 class _Steps:
@@ -191,15 +330,12 @@ class _Steps:
 
     def __init__(self, sdat):
         self.sdat = sdat
-        self._len = UNDETERMINED
-        self._data = {None: _step.EmptyStep()}  # for non existent snaps
+        self._data = {}
 
     def __repr__(self):
-        return '{}.steps'.format(repr(self.sdat))
+        return f'{self.sdat!r}.steps'
 
     def __getitem__(self, istep):
-        if istep is None:
-            return self._data[None]
         keys = _as_view_item(istep)
         if keys is not None:
             return _StepsView(self, keys)
@@ -214,7 +350,7 @@ class _Steps:
                 istep -= len(self)
                 raise error.InvalidTimestepError(
                     self.sdat, istep,
-                    'Last istep is {}'.format(len(self) - 1))
+                    f'Last istep is {len(self) - 1}')
         if istep not in self._data:
             self._data[istep] = _step.Step(istep, self.sdat)
         return self._data[istep]
@@ -225,10 +361,12 @@ class _Steps:
                 (i, f) for i, f in self.sdat._collected_fields if i != istep]
             del self._data[istep]
 
+    @crop
+    def _len(self):
+        # not necessarily the last one...
+        return self.sdat.tseries.isteps[-1] + 1
+
     def __len__(self):
-        if self._len is UNDETERMINED:
-            # not necessarily the last one...
-            self._len = self.sdat.tseries.index[-1] + 1
         return self._len
 
     def __iter__(self):
@@ -247,20 +385,8 @@ class _Steps:
         Returns:
             :class:`~stagpy._step.Step`: the relevant step.
         """
-        if self.sdat.tseries is None:
-            return None
-
-        igm = 0
-        igp = self.sdat.tseries.shape[0] - 1
-        while igp - igm > 1:
-            istart = igm + (igp - igm) // 2
-            if self.sdat.tseries.iloc[istart]['t'] >= time:
-                igp = istart
-            else:
-                igm = istart
-        if self.sdat.tseries.iloc[igp]['t'] > time and not after and igp > 0:
-            igp -= 1
-        return self[igp]
+        itime = misc.find_in_sorted_arr(time, self.sdat.tseries.time, after)
+        return self[self.sdat.tseries.isteps[itime]]
 
     def filter(self, **filters):
         """Build a _StepsView with requested filters."""
@@ -293,7 +419,7 @@ class _Snaps(_Steps):
         super().__init__(sdat)
 
     def __repr__(self):
-        return '{}.snaps'.format(repr(self.sdat))
+        return f'{self.sdat!r}.snaps'
 
     def __getitem__(self, isnap):
         keys = _as_view_item(isnap)
@@ -305,8 +431,9 @@ class _Snaps(_Steps):
             istep = None
         else:
             istep = self._isteps.get(
-                isnap, None if self._all_isteps_known else UNDETERMINED)
-        if istep is UNDETERMINED:
+                isnap, None if self._all_isteps_known else -1)
+        if istep == -1:
+            # isnap not in _isteps but not all isteps known, keep looking
             binfiles = self.sdat._binfiles_set(isnap)
             if binfiles:
                 istep = stagyyparsers.fields(binfiles.pop(), only_istep=True)
@@ -316,35 +443,36 @@ class _Snaps(_Steps):
                 self._bind(isnap, istep)
             else:
                 self._isteps[isnap] = None
+        if istep is None:
+            raise error.InvalidSnapshotError(
+                self.sdat, isnap, 'Invalid snapshot index')
         return self.sdat.steps[istep]
 
     def __delitem__(self, isnap):
         istep = self._isteps.get(isnap)
         del self.sdat.steps[istep]
 
-    def __len__(self):
-        if self._len is UNDETERMINED:
-            self._len = -1
-            if self.sdat.hdf5:
-                isnap = -1
-                for isnap, istep in stagyyparsers.read_time_h5(self.sdat.hdf5):
-                    self._bind(isnap, istep)
-                self._len = isnap
-                self._all_isteps_known = True
-            if self._len < 0:
-                out_stem = re.escape(pathlib.Path(
-                    self.sdat.par['ioin']['output_file_stem'] + '_').name[:-1])
-                rgx = re.compile(
-                    '^{}_([a-zA-Z]+)([0-9]{{5}})$'.format(out_stem))
-                fstems = set(fstem for fstem in phyvars.FIELD_FILES)
-                for fname in self.sdat._files:
-                    match = rgx.match(fname.name)
-                    if match is not None and match.group(1) in fstems:
-                        self._len = max(int(match.group(2)), self._len)
-            if self._len < 0:
-                raise error.NoSnapshotError(self.sdat)
-            self._len += 1
-        return self._len
+    @crop
+    def _len(self):
+        length = -1
+        if self.sdat.hdf5:
+            isnap = -1
+            for isnap, istep in stagyyparsers.read_time_h5(self.sdat.hdf5):
+                self._bind(isnap, istep)
+            length = isnap
+            self._all_isteps_known = True
+        if length < 0:
+            out_stem = re.escape(pathlib.Path(
+                self.sdat.par['ioin']['output_file_stem'] + '_').name[:-1])
+            rgx = re.compile(f'^{out_stem}_([a-zA-Z]+)([0-9]{{5}})$')
+            fstems = set(fstem for fstem in phyvars.FIELD_FILES)
+            for fname in self.sdat._files:
+                match = rgx.match(fname.name)
+                if match is not None and match.group(1) in fstems:
+                    length = max(int(match.group(2)), length)
+        if length < 0:
+            raise error.NoSnapshotError(self.sdat)
+        return length + 1
 
     def at_time(self, time, after=False):
         """Return snap corresponding to a given physical time.
@@ -359,20 +487,17 @@ class _Snaps(_Steps):
         Returns:
             :class:`~stagpy._step.Step`: the relevant snap.
         """
-        if self.sdat.tseries is None:
-            return None
-
         # in theory, this could be a valid implementation of _Steps.at_time
         # but this isn't safe against missing data...
         igm = 0
         igp = len(self) - 1
         while igp - igm > 1:
             istart = igm + (igp - igm) // 2
-            if self[istart].timeinfo['t'] >= time:
+            if self[istart].time >= time:
                 igp = istart
             else:
                 igm = istart
-        if self[igp].timeinfo['t'] > time and not after and igp > 0:
+        if self[igp].time > time and not after and igp > 0:
             igp -= 1
         return self[igp]
 
@@ -403,38 +528,64 @@ class _StepsView:
     def __init__(self, steps_col, items):
         self._col = steps_col
         self._items = items
+        self._rprofs_averaged = None
         self._flt = {
             'snap': False,
-            'rprof': False,
+            'rprofs': False,
             'fields': [],
             'func': lambda _: True,
         }
         self._dflt_func = self._flt['func']
 
-    def __repr__(self):
-        rep = repr(self._col)
+    @property
+    def rprofs_averaged(self):
+        """Time-averaged radial profiles."""
+        if self._rprofs_averaged is None:
+            self._rprofs_averaged = _RprofsAveraged(self)
+        return self._rprofs_averaged
+
+    @crop
+    def stepstr(self):
+        """String representation of the requested set of steps."""
         items = []
+        no_slice = True
         for item in self._items:
             if isinstance(item, slice):
                 items.append('{}:{}:{}'.format(*item.indices(len(self._col))))
+                no_slice = False
             else:
                 items.append(repr(item))
-        rep += '[{}]'.format(','.join(items))
+        item_str = ','.join(items)
+        if no_slice and len(items) == 1:
+            item_str += ','
+        colstr = repr(self._col).rsplit('.', maxsplit=1)[-1]
+        return f'{colstr}[{item_str}]'
+
+    def __repr__(self):
+        rep = f'{self._col.sdat!r}.{self.stepstr}'
         flts = []
-        for flt in ('snap', 'rprof', 'fields'):
+        for flt in ('snap', 'rprofs', 'fields'):
             if self._flt[flt]:
-                flts.append('{}={}'.format(flt, repr(self._flt[flt])))
+                flts.append(f'{flt}={self._flt[flt]!r}')
         if self._flt['func'] is not self._dflt_func:
-            flts.append('func={}'.format(repr(self._flt['func'])))
+            flts.append(f"func={self._flt['func']!r}")
         if flts:
             rep += '.filter({})'.format(', '.join(flts))
         return rep
 
-    def _pass(self, step):
-        """Check whether a :class:`~stagpy._step.Step` passes the filters."""
+    def _pass(self, item):
+        """Check whether an item passes the filters."""
+        try:
+            step = self._col[item]
+        except KeyError:
+            return False
         okf = True
         okf = okf and (not self._flt['snap'] or step.isnap is not None)
-        okf = okf and (not self._flt['rprof'] or step.rprof is not None)
+        if self._flt['rprofs']:
+            try:
+                _ = step.rprofs.centers
+            except error.MissingDataError:
+                return False
         okf = okf and all(f in step.fields for f in self._flt['fields'])
         okf = okf and bool(self._flt['func'](step))
         return okf
@@ -446,7 +597,7 @@ class _StepsView:
         hence they do not compose. Each call to filter merely updates the
         relevant filters. For example, with this code::
 
-            view = sdat.steps[500:].filter(rprof=True, fields=['T'])
+            view = sdat.steps[500:].filter(rprofs=True, fields=['T'])
             view.filter(fields=[])
 
         the produced ``view``, when iterated, will generate the steps after the
@@ -455,7 +606,7 @@ class _StepsView:
 
         Args:
             snap (bool): the step must be a snapshot to pass.
-            rprof (bool): the step must have rprof data to pass.
+            rprofs (bool): the step must have rprofs data to pass.
             fields (list): list of fields that must be present to pass.
             func (function): arbitrary function taking a
                 :class:`~stagpy._step.Step` as argument and returning a True
@@ -475,8 +626,8 @@ class _StepsView:
             if isinstance(item, slice):
                 idx = item.indices(len(self._col))
                 yield from (self._col[i] for i in range(*idx)
-                            if self._pass(self._col[i]))
-            elif self._pass(self._col[item]):
+                            if self._pass(i))
+            elif self._pass(item):
                 yield self._col[item]
 
     def __eq__(self, other):
@@ -513,14 +664,11 @@ class StagyyData:
         else:
             parname = 'par'
         self._rundir = {'path': runpath,
-                        'par': parname,
-                        'hdf5': UNDETERMINED,
-                        'ls': UNDETERMINED}
-        self._stagdat = {'par': parfile.readpar(self.parpath, self.path),
-                         'tseries': UNDETERMINED,
-                         'rprof': UNDETERMINED}
+                        'par': parname}
+        self._par = parfile.readpar(self.parpath, self.path)
         self.scales = _Scales(self)
         self.refstate = _Refstate(self)
+        self.tseries = _Tseries(self)
         self.steps = _Steps(self)
         self.snaps = _Snaps(self)
         self._nfields_max = 50
@@ -528,10 +676,10 @@ class StagyyData:
         self._collected_fields = []
 
     def __repr__(self):
-        return 'StagyyData({})'.format(repr(self.path))
+        return f'StagyyData({self.path!r})'
 
     def __str__(self):
-        return 'StagyyData in {}'.format(self.path)
+        return f'StagyyData in {self.path}'
 
     @property
     def path(self):
@@ -549,16 +697,12 @@ class StagyyData:
         """
         return self.path / self._rundir['par']
 
-    @property
+    @crop
     def hdf5(self):
         """Path of output hdf5 folder if relevant, None otherwise."""
-        if self._rundir['hdf5'] is UNDETERMINED:
-            h5_folder = self.path / self.par['ioin']['hdf5_output_folder']
-            if (h5_folder / 'Data.xmf').is_file():
-                self._rundir['hdf5'] = h5_folder
-            else:
-                self._rundir['hdf5'] = None
-        return self._rundir['hdf5']
+        h5_folder = self.path / self.par['ioin']['hdf5_output_folder']
+        if (h5_folder / 'Data.xmf').is_file():
+            return h5_folder
 
     @property
     def par(self):
@@ -567,53 +711,19 @@ class StagyyData:
         This is a :class:`f90nml.namelist.Namelist`, the first key being
         namelists and the second key the parameter name.
         """
-        return self._stagdat['par']
+        return self._par
 
-    @property
-    def tseries(self):
-        """Time series data.
-
-        This is a :class:`pandas.DataFrame` with istep as index and variable
-        names as columns.
-        """
-        if self._stagdat['tseries'] is UNDETERMINED:
-            timefile = self.filename('TimeSeries.h5')
-            self._stagdat['tseries'] = stagyyparsers.time_series_h5(
-                timefile, list(phyvars.TIME.keys()))
-            if self._stagdat['tseries'] is not None:
-                return self._stagdat['tseries']
-            timefile = self.filename('time.dat')
-            if self.hdf5 and not timefile.is_file():
-                # check legacy folder as well
-                timefile = self.filename('time.dat', force_legacy=True)
-            self._stagdat['tseries'] = stagyyparsers.time_series(
-                timefile, list(phyvars.TIME.keys()))
-        return self._stagdat['tseries']
-
-    @property
+    @crop
     def _rprof_and_times(self):
-        if self._stagdat['rprof'] is UNDETERMINED:
-            rproffile = self.filename('rprof.h5')
-            self._stagdat['rprof'] = stagyyparsers.rprof_h5(
-                rproffile, list(phyvars.RPROF.keys()))
-            if self._stagdat['rprof'][0] is not None:
-                return self._stagdat['rprof']
-            rproffile = self.filename('rprof.dat')
-            if self.hdf5 and not rproffile.is_file():
-                # check legacy folder as well
-                rproffile = self.filename('rprof.dat', force_legacy=True)
-            self._stagdat['rprof'] = stagyyparsers.rprof(
-                rproffile, list(phyvars.RPROF.keys()))
-        return self._stagdat['rprof']
-
-    @property
-    def rprof(self):
-        """Radial profiles data.
-
-        This is a :class:`pandas.DataFrame` with a 2-level index (istep and iz)
-        and variable names as columns.
-        """
-        return self._rprof_and_times[0]
+        rproffile = self.filename('rprof.h5')
+        data = stagyyparsers.rprof_h5(rproffile, list(phyvars.RPROF.keys()))
+        if data[1] is not None:
+            return data
+        rproffile = self.filename('rprof.dat')
+        if self.hdf5 and not rproffile.is_file():
+            # check legacy folder as well
+            rproffile = self.filename('rprof.dat', force_legacy=True)
+        return stagyyparsers.rprof(rproffile, list(phyvars.RPROF.keys()))
 
     @property
     def rtimes(self):
@@ -623,17 +733,14 @@ class StagyyData:
         """
         return self._rprof_and_times[1]
 
-    @property
+    @crop
     def _files(self):
         """Set of found binary files output by StagYY."""
-        if self._rundir['ls'] is UNDETERMINED:
-            out_stem = pathlib.Path(self.par['ioin']['output_file_stem'] + '_')
-            out_dir = self.path / out_stem.parent
-            if out_dir.is_dir():
-                self._rundir['ls'] = set(out_dir.iterdir())
-            else:
-                self._rundir['ls'] = set()
-        return self._rundir['ls']
+        out_stem = pathlib.Path(self.par['ioin']['output_file_stem'] + '_')
+        out_dir = self.path / out_stem.parent
+        if out_dir.is_dir():
+            return set(out_dir.iterdir())
+        return set()
 
     @property
     def walk(self):
@@ -696,32 +803,6 @@ class StagyyData:
             unit = factor + unit
         return data * scaling, unit
 
-    def tseries_between(self, tstart=None, tend=None):
-        """Return time series data between requested times.
-
-        Args:
-            tstart (float): starting time. Set to None to start at the
-                beginning of available data.
-            tend (float): ending time. Set to None to stop at the end of
-                available data.
-        Returns:
-            :class:`pandas.DataFrame`: slice of :attr:`tseries`.
-        """
-        if self.tseries is None:
-            return None
-
-        if tstart is None:
-            istart = 0
-        else:
-            istart = self.steps.at_time(tstart).istep
-
-        if tend is None:
-            iend = None
-        else:
-            iend = self.steps.at_time(tend, after=True).istep + 1
-
-        return self.tseries.iloc[istart:iend]
-
     def filename(self, fname, timestep=None, suffix='', force_legacy=False):
         """Return name of StagYY output file.
 
@@ -736,7 +817,7 @@ class StagyyData:
             with the provided segments.
         """
         if timestep is not None:
-            fname += '{:05d}'.format(timestep)
+            fname += f'{timestep:05d}'
         fname += suffix
         if not force_legacy and self.hdf5:
             fpath = self.hdf5 / fname
