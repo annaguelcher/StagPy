@@ -40,6 +40,7 @@ FIELD = OrderedDict((
     ('rs2', Varf('y Momentum residue', '1')),
     ('rs3', Varf('z Momentum residue', '1')),
     ('rsc', Varf('Continuity residue', '1')),
+    ('prim', Varf('Primordial layer', '1')),
 ))
 
 FIELD_EXTRA = OrderedDict((
@@ -61,12 +62,17 @@ FIELD_FILES = OrderedDict((
     ('sx', ['sx1', 'sx2', 'sx3', 's1val']),
     ('ed', ['edot']),
     ('tcond', ['Tcond1', 'Tcond2', 'Tcond3']),
+    ('prm', ['prim']),
 ))
 
 FIELD_FILES_H5 = OrderedDict((
     ('Temperature', ['T']),
     ('Velocity', ['v1', 'v2', 'v3']),
     ('Dynamic_Pressure', ['p']),
+    # Depending on the version of StagYY and whether total pressure is used,
+    # the dynamic pressure might be written in this file instead.  It will be
+    # used as fallback by _step._Fields._get_raw_data.
+    ('Pressure', ['p']),
     ('Composition', ['c']),
     ('IronContent', ['cFe']),
     ('HPE', ['hpe']),
@@ -82,6 +88,7 @@ FIELD_FILES_H5 = OrderedDict((
     ('Stress', ['sII']),
     ('PrincipalStressAxis', ['sx1', 'sx2', 'sx3']),
     ('StrainRate', ['edot']),
+    ('Primordial', ['prim']),
 ))
 
 SFIELD = OrderedDict((
