@@ -43,10 +43,11 @@ FIELD = OrderedDict((
     ('rs2', Varf('y Momentum residue', '1')),
     ('rs3', Varf('z Momentum residue', '1')),
     ('rsc', Varf('Continuity residue', '1')),
-    ('vstr', Varf('Viscous strain', '1')),      #AG
-    ('vstr_Hrate', Varf('Vstr healing rate', '1')),  #AG
-    ('vstr_Wrate', Varf('Vstr weakening rate', '1')),
-)) # AG: add fields that are needed! name, uitleg, units
+    ('vstr', Varf('Viscous strain', '1')),            #AG
+    ('vstr_Hrate', Varf('Vstr healing rate', '1')),   #AG
+    ('vstr_Wrate', Varf('Vstr weakening rate', '1')), #AG
+    ('prim', Varf('Primordial layer', '1')),          #AG
+))
 
 FIELD_EXTRA = OrderedDict((
     ('stream', Varf(processing.stream_function, 'm2/s')),
@@ -80,6 +81,12 @@ FIELD_FILES_H5 = OrderedDict((
     ('Velocity', ['v1', 'v2', 'v3']),
     ('Dynamic_Pressure', ['p_d']),
     ('Pressure', ['p_s']),   #AG
+
+#    ('Dynamic_Pressure', ['p']),
+#    # Depending on the version of StagYY and whether total pressure is used,
+#    # the dynamic pressure might be written in this file instead.  It will be
+#    # used as fallback by _step._Fields._get_raw_data.
+#    ('Pressure', ['p']),
     ('Composition', ['c']),
     ('IronContent', ['cFe']),
     ('HPE', ['hpe']),
@@ -101,6 +108,7 @@ FIELD_FILES_H5 = OrderedDict((
     ('Vstr_Hrate', ['vstr_Hrate']),           #AG
     ('Vstr_Wrate', ['vstr_Wrate']),           #AG  
 )) # AG: also add here! name should be as stagYY output
+
 
 SFIELD = OrderedDict((
     ('topo_top', Varf('Topography at top', 'm')),
