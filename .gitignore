@@ -1,11 +1,5 @@
 *.pdf
 *.swp
-*/__pycache__/
+__pycache__/
 .coverage
-.tox
-stagpy.egg-info/
-.venv_dev/
-docs/_build/
-docs/_static/
-docs/_templates/
-docs/sources/config_opts.rst
+/uv.lock

@@ -1,0 +1,443 @@
+"""Lists of physical variables made available by StagPy.
+
+They are organized by kind of variables (field, profiles, and time series).
+`EXTRA` lists group variables that are not directly output by StagYY and need to
+be computed from other variables.
+"""
+
+from __future__ import annotations
+
+import typing
+from collections.abc import Sequence
+from dataclasses import dataclass
+from functools import cached_property
+from operator import attrgetter
+from types import MappingProxyType
+
+from . import error, processing
+from .datatypes import Varf, Varr, Vart
+
+if typing.TYPE_CHECKING:
+    from collections.abc import Mapping
+    from typing import Callable
+
+    from .datatypes import Field, Rprof, Tseries
+    from .dimensions import Scales
+    from .stagyydata import StagyyData
+    from .step import Step
+
+
+@dataclass(frozen=True)
+class FieldVars:
+    variables: Mapping[str, Varf]
+
+    @staticmethod
+    def from_dict(dct: dict[str, Varf]) -> FieldVars:
+        return FieldVars(MappingProxyType(dct))
+
+    @cached_property
+    def legacy_files(self) -> Mapping[str, Sequence[str]]:
+        """Mapping from file name to file content."""
+        dct: dict[str, tuple[str, ...]] = {}
+        for name, meta in self.variables.items():
+            fname = meta.file_legacy
+            dct[fname] = dct.get(fname, ()) + (name,)
+        return MappingProxyType(dct)
+
+    @cached_property
+    def h5_files(self) -> Mapping[str, Sequence[str]]:
+        """Mapping from file name to file content."""
+        dct: dict[str, tuple[str, ...]] = {}
+        for name, meta in self.variables.items():
+            fname = meta.file_h5
+            dct[fname] = dct.get(fname, ()) + (name,)
+        return MappingProxyType(dct)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self.variables
+
+    def meta(self, name: str) -> Varf:
+        return self.variables[name]
+
+    def legacy_file_info(self, name: str) -> tuple[str, Sequence[str]]:
+        try:
+            fname = self.meta(name).file_legacy
+            return fname, self.legacy_files[fname]
+        except KeyError:
+            raise error.UnknownFieldVarError(name)
+
+    def h5_file_info(self, name: str) -> tuple[str, Sequence[str]]:
+        try:
+            fname = self.meta(name).file_h5
+            return fname, self.h5_files[fname]
+        except KeyError:
+            raise error.UnknownFieldVarError(name)
+
+
+FIELD: FieldVars = FieldVars.from_dict(
+    {
+        "T": Varf("Temperature", "K", "t", "Temperature"),
+        "v1": Varf("Velocity (x)", "m/s", "vp", "Velocity"),
+        "v2": Varf("Velocity (y)", "m/s", "vp", "Velocity"),
+        "v3": Varf("Velocity (z)", "m/s", "vp", "Velocity"),
+        "p": Varf("Pressure", "Pa", "vp", "Pressure"),
+        "Pdyn": Varf("Dynamic pressure", "Pa", "Pdyn", "DynamicPressure"),
+        "eta": Varf("Viscosity", "Pa.s", "eta", "Viscosity"),
+        "rho": Varf("Density", "kg/m3", "rho", "Density"),
+        "trarho": Varf("Density from tracer mass", "kg/m3", "trho", "TraBasedDensity"),
+        "sII": Varf("Second invariant of stress tensor", "Pa", "str", "Stress"),
+        "sx1": Varf(
+            "Principal stress eigenvector (x)", "Pa", "sx", "PrincipalStressAxis"
+        ),
+        "sx2": Varf(
+            "Principal stress eigenvector (y)", "Pa", "sx", "PrincipalStressAxis"
+        ),
+        "sx3": Varf(
+            "Principal stress eigenvector (z)", "Pa", "sx", "PrincipalStressAxis"
+        ),
+        "s1val": Varf(
+            "Principal stress eigenvalue", "Pa", "sx", "PrincipalStressAxisP"
+        ),
+        "edot": Varf("Strain rate", "1/s", "ed", "StrainRate"),
+        "Tcond": Varf("Thermal conductivity", "W/(m.K)", "k", "ThermalConductivity"),
+        "c": Varf("Composition", "1", "c", "Composition"),
+        "cFe": Varf("FeO content", "1", "FeO", "IronContent"),
+        "hpe": Varf("HPE content", "1", "hpe", "HPE"),
+        "wtr": Varf("Water concentration", "1", "wtr", "Water"),
+        "age": Varf("Age", "s", "age", "Age"),
+        "contID": Varf("ID of continents", "1", "nrc", "ContinentNumber"),
+        "rs1": Varf("Momentum residue (x)", "1", "rs", "ResidualMomentum"),
+        "rs2": Varf("Momentum residue (y)", "1", "rs", "ResidualMomentum"),
+        "rs3": Varf("Momentum residue (z)", "1", "rs", "ResidualMomentum"),
+        "rsc": Varf("Continuity residue", "1", "rs", "ResidualContinuity"),
+        "basalt": Varf("Basalt fraction", "1", "bs", "Basalt"),
+        "harzburgite": Varf("Harzburgite fraction", "1", "hz", "Harzburgite"),
+        "impactor": Varf("Impactor fraction", "1", "imp", "Impactor"),
+        "prim": Varf("Primordial layer", "1", "prm", "Primordial"),
+        "meltfrac": Varf("Melt fraction", "1", "f", "MeltFrac"),
+        "meltcompo": Varf("Melt composition", "1", "fc", "MeltComposition"),
+        "meltrate": Varf("Melting rate", "1", "df", "MeltingRate"),
+        "meltvel": Varf("Melt velocity", "1", "vm", "MeltVelocity"),
+        "nmelt": Varf("N melt", "1", "nm", "nmelt"),
+        "fSiO2": Varf("fSiO2", "1", "fSiO2", "fSiO2"),
+        "fMgO": Varf("fMgO", "1", "fMgO", "fMgO"),
+        "fFeO": Varf("fFeO", "1", "fFeO", "fFeO"),
+        "fXO": Varf("fXO", "1", "fXO", "fXO"),
+        "fFeR": Varf("fFeR", "1", "fFeR", "fFeR"),
+    }
+)
+"""Scalar fields output by StagYY."""
+
+FIELD_EXTRA: Mapping[str, Callable[[Step], Field]] = MappingProxyType(
+    {
+        "stream": processing.stream_function,
+    }
+)
+"""Scalar fields that StagPy can compute."""
+
+SFIELD: FieldVars = FieldVars.from_dict(
+    {
+        "topo_bot": Varf("Topography at bottom", "m", "cs", "BottomTopography"),
+        "topo_top": Varf("Topography at top", "m", "cs", "SurfaceTopography"),
+        "geoid_bot": Varf("Geoid at bottom", "m", "g", "BottomGeoid"),
+        "geoid_top": Varf("Geoid at top", "m", "g", "TopGeoid"),
+        "topo_g_bot": Varf(
+            "Topography for geoid at bottom", "m", "csg", "BottomCSGeoid"
+        ),
+        "topo_g_top": Varf("Topography for geoid at top", "m", "csg", "TopCSGeoid"),
+        "fbot": Varf("Heat flux at bottom", "W/m2", "hf", "BottomHeatFlux"),
+        "ftop": Varf("Heat flux at top", "W/m2", "hf", "TopHeatFlux"),
+        "fsbot": Varf(
+            "Heat flux from spectrum at bottom", "W/m2", "hfs", "BottomHFSpectrum"
+        ),
+        "fstop": Varf("Heat flux from spectrum at top", "W/m2", "hfs", "TopHFSpectrum"),
+        "crust": Varf("Crustal thickness", "m", "cr", "CrustThickness"),
+    }
+)
+"""Surface scalar fields output by StagYY."""
+
+RPROF: Mapping[str, Varr] = MappingProxyType(
+    {
+        "r": Varr("Radial coordinate", "Radius", "m"),
+        "Tmean": Varr("Temperature", "Temperature", "K"),
+        "Tmin": Varr("Min temperature", "Temperature", "K"),
+        "Tmax": Varr("Max temperature", "Temperature", "K"),
+        "vrms": Varr("rms velocity", "Velocity", "m/s"),
+        "vmin": Varr("Min velocity", "Velocity", "m/s"),
+        "vmax": Varr("Max velocity", "Velocity", "m/s"),
+        "vzabs": Varr("Radial velocity", "Velocity", "m/s"),
+        "vzmin": Varr("Min radial velocity", "Velocity", "m/s"),
+        "vzmax": Varr("Max radial velocity", "Velocity", "m/s"),
+        "vhrms": Varr("Horizontal velocity", "Velocity", "m/s"),
+        "vhmin": Varr("Min horiz velocity", "Velocity", "m/s"),
+        "vhmax": Varr("Max horiz velocity", "Velocity", "m/s"),
+        "etalog": Varr("Viscosity", "Viscosity", "Pa"),
+        "etamin": Varr("Min viscosity", "Viscosity", "Pa"),
+        "etamax": Varr("Max viscosity", "Viscosity", "Pa"),
+        "elog": Varr("Strain rate", "Strain rate", "1/s"),
+        "emin": Varr("Min strain rate", "Strain rate", "1/s"),
+        "emax": Varr("Max strain rate", "Strain rate", "1/s"),
+        "slog": Varr("Stress", "Stress", "Pa"),
+        "smin": Varr("Min stress", "Stress", "Pa"),
+        "smax": Varr("Max stress", "Stress", "Pa"),
+        "whrms": Varr("Horizontal vorticity", "Vorticity", "1/s"),
+        "whmin": Varr("Min horiz vorticity", "Vorticity", "1/s"),
+        "whmax": Varr("Max horiz vorticity", "Vorticity", "1/s"),
+        "wzrms": Varr("Radial vorticity", "Vorticity", "1/s"),
+        "wzmin": Varr("Min radial vorticity", "Vorticity", "1/s"),
+        "wzmax": Varr("Max radial vorticity", "Vorticity", "1/s"),
+        "drms": Varr("Divergence", "Divergence", "1/s"),
+        "dmin": Varr("Min divergence", "Divergence", "1/s"),
+        "dmax": Varr("Max divergence", "Divergence", "1/s"),
+        "enadv": Varr("Advection", "Heat flux", "W/m2"),
+        "endiff": Varr("Diffusion", "Heat flux", "W/m2"),
+        "enradh": Varr("Radiogenic heating", "Heat flux", "W/m2"),
+        "enviscdiss": Varr("Viscous dissipation", "Heat flux", "W/m2"),
+        "enadiabh": Varr("Adiabatic heating", "Heat flux", "W/m2"),
+        "bsmean": Varr("Basalt content", "Concentration", "1"),
+        "bsmin": Varr("Min basalt content", "Concentration", "1"),
+        "bsmax": Varr("Max basalt content", "Concentration", "1"),
+        "rhomean": Varr("Density", "Density", "kg/m3"),
+        "rhomin": Varr("Min density", "Density", "kg/m3"),
+        "rhomax": Varr("Max density", "Density", "kg/m3"),
+        "airmean": Varr("Air", "Air", "1"),
+        "airmin": Varr("Min air", "Air", "1"),
+        "airmax": Varr("Max air", "Air", "1"),
+        "primmean": Varr("Primordial", "Concentration", "1"),
+        "primmin": Varr("Min primordial", "Concentration", "1"),
+        "primmax": Varr("Max primordial", "Concentration", "1"),
+        "ccmean": Varr("Continental crust", "Crust", "1"),
+        "ccmin": Varr("Min continental crust", "Crust", "1"),
+        "ccmax": Varr("Max continental crust", "Crust", "1"),
+        "fmeltmean": Varr("Melt fraction", "Melt fraction", "1"),
+        "fmeltmin": Varr("Min melt fraction", "Melt fraction", "1"),
+        "fmeltmax": Varr("Max melt fraction", "Melt fraction", "1"),
+        "metalmean": Varr("Metal", "Concentration", "1"),
+        "metalmin": Varr("Min metal", "Concentration", "1"),
+        "metalmax": Varr("Max metal", "Concentration", "1"),
+        "gsmean": Varr("Grain size", "Grain size", "m"),
+        "gsmin": Varr("Min grain size", "Grain size", "m"),
+        "gsmax": Varr("Max grain", "Grain size", "m"),
+        "viscdisslog": Varr("Viscous dissipation", "Heat flux", "W/m2"),
+        "viscdissmin": Varr("Min visc dissipation", "Heat flux", "W/m2"),
+        "viscdissmax": Varr("Max visc dissipation", "Heat flux", "W/m2"),
+        "advtot": Varr("Advection", "Heat flux", "W/m2"),
+        "advdesc": Varr("Downward advection", "Heat flux", "W/m2"),
+        "advasc": Varr("Upward advection", "Heat flux", "W/m2"),
+        "tcondmean": Varr("Conductivity", "Conductivity", "W/(m.K)"),
+        "tcondmin": Varr("Min conductivity", "Conductivity", "W/(m.K)"),
+        "tcondmax": Varr("Max conductivity", "Conductivity", "W/(m.K)"),
+        "impmean": Varr("Impactor fraction", "Concentration", "1"),
+        "impmin": Varr("Min impactor fraction", "Concentration", "1"),
+        "impmax": Varr("Max impactor fraction", "Concentration", "1"),
+        "hzmean": Varr("Harzburgite fraction", "Concentration", "1"),
+        "hzmin": Varr("Min harzburgite fraction", "Concentration", "1"),
+        "hzmax": Varr("Max harzburgite fraction", "Concentration", "1"),
+        "TTGmean": Varr("TTG fraction", "Concentration", "1"),
+        "TTGmin": Varr("Min TTG fraction", "Concentration", "1"),
+        "TTGmax": Varr("Max TTG fraction", "Concentration", "1"),
+        "edismean": Varr("Dislocation creep fraction", "Fraction", "1"),
+        "edismin": Varr("Min dislocation creep fraction", "Fraction", "1"),
+        "edismax": Varr("Max dislocation creep fraction", "Fraction", "1"),
+        "egbsmean": Varr("Grain boundary sliding fraction", "Fraction", "1"),
+        "egbsmin": Varr("Min grain boundary sliding fraction", "Fraction", "1"),
+        "egbsmax": Varr("Max grain boundary sliding fraction", "Fraction", "1"),
+        "ePeimean": Varr("Peierls creep fraction", "Fraction", "1"),
+        "ePeimin": Varr("Min Peierls creep fraction", "Fraction", "1"),
+        "ePeimax": Varr("Max Peierls creep fraction", "Fraction", "1"),
+        "eplamean": Varr("Plasticity fraction", "Fraction", "1"),
+        "eplamin": Varr("Min plasticity fraction", "Fraction", "1"),
+        "eplamax": Varr("Max plasticity fraction", "Fraction", "1"),
+    }
+)
+"""Radial profiles output by StagYY."""
+
+RPROF_EXTRA: Mapping[str, Callable[[Step], Rprof]] = MappingProxyType(
+    {
+        "dr": processing.delta_r,
+        "diff": processing.diff_prof,
+        "diffs": processing.diffs_prof,
+        "advts": processing.advts_prof,
+        "advds": processing.advds_prof,
+        "advas": processing.advas_prof,
+        "energy": processing.energy_prof,
+    }
+)
+"""Radial profiles that StagPy can compute."""
+
+
+TIME: Mapping[str, Vart] = MappingProxyType(
+    {
+        "time": Vart("Time", "Time", "s"),
+        "F_top": Vart("Heat flux at top", "Heat flux", "W/m2"),
+        "F_bot": Vart("Heat flux at bottom", "Heat flux", "W/m2"),
+        "Tmin": Vart("Min temperature", "Temperature", "K"),
+        "Tmean": Vart("Temperature", "Temperature", "K"),
+        "Tmax": Vart("Max temperature", "Temperature", "K"),
+        "Vmin": Vart("Min velocity", "Velocity", "m/s"),
+        "Vrms": Vart("rms velocity", "Velocity", "m/s"),
+        "Vmax": Vart("Max velocity", "Velocity", "m/s"),
+        "eta_min": Vart("Min viscosity", "Viscosity", "Pa.s"),
+        "eta_amean": Vart("Viscosity", "Viscosity", "Pa.s"),
+        "eta_max": Vart("Max viscosity", "Viscosity", "Pa.s"),
+        "ra_eff": Vart("Effective Ra", r"$\mathrm{Ra}$", "1"),
+        "Nu_top": Vart("Nusselt at top", r"$\mathrm{Nu}$", "1"),
+        "Nu_bot": Vart("Nusselt at bot", r"$\mathrm{Nu}$", "1"),
+        "C_min": Vart("Min concentration", "Concentration", "1"),
+        "C_mean": Vart("Concentration", "Concentration", "1"),
+        "C_max": Vart("Max concentration", "Concentration", "1"),
+        "F_mean": Vart("Molten fraction", "Fraction", "1"),
+        "F_max": Vart("Max molten fraction", "Fraction", "1"),
+        "erupt_rate": Vart("Eruption rate", "Eruption rate", "1/s"),
+        "erupta": Vart("Erupta total", "Eruption rate", "1/s"),
+        "erupt_heatflux": Vart("Erupta heat", "Eruption rate", "1/s"),
+        "entrainment": Vart("Entrainment", "Eruption rate", "1/s"),
+        "Cmass_error": Vart("Error on Cmass", "Error", "1"),
+        "H_int": Vart("Internal heating", "Power density", "W/m3"),
+        "r_innercore": Vart("Inner core radius", "Inner core radius", "m"),
+        "Tsurf": Vart("Temperature at top", "Temperature", "K"),
+        "Tcmb": Vart("Temperature at bottom", "Temperature", "K"),
+        "Tpotl": Vart("Mass mean potential temperature", "Temperature", "K"),
+        "eta_gmean": Vart("Geometric mass mean viscosity", "Viscosity", "Pa.s"),
+        "H_diffus": Vart("Heat diffusion", "Power density", "W/m3"),
+        "H_VD": Vart("Viscous dissipation", "Power density", "W/m3"),
+        "H_AH": Vart("Adiabatic heating", "Power density", "W/m3"),
+        "H_cool": Vart("Cooling", "Heat flux", "W/m2"),
+        "H_melt": Vart("Melting heat flux", "Heat flux", "W/m2"),
+        "H_GPE": Vart("Gravitational potential energy flux", "Energy flux", "W/m2"),
+        "erupta_total": Vart("Total erupta", "Mass", "kg"),
+        "Psurf": Vart("Ground pressure", "Pressure", "Pa"),
+        "weathering": Vart("Weathering", "Mass flux", "tons/yr"),
+        "mH2O_total": Vart("Total H2O mass", "Mass", "kg"),
+        "mH2O_mantle": Vart("H2O in mantle", "Mass", "kg"),
+        "mH2O_crust": Vart("H2O in crust", "Mass", "kg"),
+        "dmH2O": Vart("Absorbed H2O", "Mass", "kg"),
+        "cH2O_mean": Vart("H2O concentration", "Concentration", "1"),
+        "F_top_H2O_diff": Vart("H2O diffusion flux at top", "Mass flux", "kg/s"),
+        "F_top_H2O_erupted": Vart("H2O eruption flux at top", "Mass flux", "kg/s"),
+        "outgassed_H2O": Vart("H2O outgassed", "Fraction", "1"),
+        "cCO2_mean": Vart("CO2 concentration", "Concentration", "1"),
+        "outgassed_CO2": Vart("CO2 outgassed", "Fraction", "1"),
+        "cN2_mean": Vart("N2 concentration", "Concentration", "1"),
+        "outgassed_N2": Vart("N2 outgassed", "Fraction", "1"),
+        "c40Ar_mean": Vart("40Ar concentration", "Concentration", "1"),
+        "c36Ar_mean": Vart("36Ar concentration", "Concentration", "1"),
+        "outgassed_40Ar": Vart("40Ar outgassed", "Fraction", "1"),
+        "outgassed_36Ar": Vart("36Ar outgassed", "Fraction", "1"),
+        "c4He_mean": Vart("4He concentration", "Concentration", "1"),
+        "c3He_mean": Vart("3He concentration", "Concentration", "1"),
+        "outgassed_4He": Vart("4He outgassed", "Fraction", "1"),
+        "outgassed_3He": Vart("3He outgassed", "Fraction", "1"),
+        "IngassedH2O": Vart("Ingassed H2O", "Fraction", "1"),
+        "OutputtedNotEruptedH2O": Vart("Outputted H2O", "Fraction", "1"),
+        "SaturationOutgasH2O": Vart("Saturation-outgas H2O", "Fraction", "1"),
+        "EruptedH2O": Vart("Erupted H2O", "Fraction", "1"),
+        "SurfOceanMass3D": Vart("Scaled H2O mass", "Mass", "kg"),
+        "TotH2OMassOceanPlusMantle": Vart("Total H2O mass", "Mass", "kg"),
+        "GS_min": Vart("Min grain size", "Size", "1"),
+        "GS_mean": Vart("Grain size", "Size", "1"),
+        "GS_max": Vart("Max grain size", "Size", "1"),
+        "intruda": Vart("Intruda", "Mantle mass", "1"),
+        "erupta_TTG": Vart("TTG erupta", "Mantle mass", "1"),
+        "intruda_TTG": Vart("TTG intruda", "Mantle mass", "1"),
+        "TTG1": Vart("TTG1", "Mantle mass", "1"),
+        "TTG2": Vart("TTG2", "Mantle mass", "1"),
+        "TTG3": Vart("TTG3", "Mantle mass", "1"),
+        "s_core": Vart("Core size", "Length", "m"),
+        "tc_core": Vart("Temperature at center", "Temperature", "K"),
+        "ts_core": Vart("Temperature at core surface", "Temperature", "K"),
+        "m_Fe_S2TMO": Vart("FeO mass flux solid to TMO", "Mass", "kg"),
+        "m_Fe_TMO2S": Vart("FeO mass flux TMO to solid", "Mass", "kg"),
+        "m_Fe_S2BMO": Vart("FeO mass flux solid to BMO", "Mass", "kg"),
+        "m_Fe_BMO2S": Vart("FeO mass flux BMO to solid", "Mass", "kg"),
+        "c_Fe_TMO": Vart("FeO content TMO", "Concentration", "1"),
+        "c_Fe_BMO": Vart("FeO content BMO", "Concentration", "1"),
+        "c_Fe_sol": Vart("FeO content solid", "Concentration", "1"),
+        "denstramin": Vart("Min tracers density", "Density", "kg/m3"),
+        "denstramean": Vart("Tracers density", "Density", "kg/m3"),
+        "denstramax": Vart("Max tracers density", "Density", "kg/m3"),
+        "H_impacts": Vart("Impact heating", "Power", "W"),
+        "SurfNetRotX": Vart("Surface net rotation around X", "Rotation", "1/s"),
+        "SurfNetRotY": Vart("Surface net rotation around Y", "Rotation", "1/s"),
+        "SurfNetRotZ": Vart("Surface net rotation around Z", "Rotation", "1/s"),
+    }
+)
+"""Time series output by StagYY."""
+
+TIME_EXTRA: Mapping[str, Callable[[StagyyData], Tseries]] = MappingProxyType(
+    {
+        "dt": processing.dtime,
+        "dTdt": processing.dt_dt,
+        "ebalance": processing.ebalance,
+        "mobility": processing.mobility,
+    }
+)
+"""Time series that StagPy can compute."""
+
+TIME_ALIAS: Mapping[str, str] = MappingProxyType(
+    {
+        "t": "time",
+        "ftop": "F_top",
+        "fbot": "F_bot",
+        "vmin": "Vmin",
+        "vrms": "Vrms",
+        "vmax": "Vmax",
+        "etamin": "eta_min",
+        "etamean": "eta_amean",
+        "etamax": "eta_max",
+        "Raeff": "ra_eff",
+        "Nutop": "Nu_top",
+        "Nubot": "Nu_bot",
+        "Cmin": "C_min",
+        "Cmean": "C_mean",
+        "Cmax": "C_max",
+        "moltenf_mean": "F_mean",
+        "moltenf_max": "F_max",
+        "erupt_tot": "erupta",
+        "erupt_heat": "erupt_heatflux",
+        "r_ic": "r_innercore",
+        "topT_val": "Tsurf",
+        "botT_val": "Tcmb",
+    }
+)
+"""Time series name aliases."""
+
+REFSTATE: Mapping[str, Varr] = MappingProxyType(
+    {
+        "z": Varr("z position", "z position", "m"),
+        "T": Varr("Temperature", "Temperature", "K"),
+        "rho": Varr("Density", "Density", "kg/m3"),
+        "expan": Varr("Thermal expansivity", "Thermal expansivity", "1/K"),
+        "Cp": Varr("Heat capacity", "Heat capacity", "J/(kg.K)"),
+        "Tcond": Varr("Conductivity", "Conductivity", "W/(m.K)"),
+        "P": Varr("Pressure", "Pressure", "Pa"),
+        "grav": Varr("Gravity", "Gravity", "m/s2"),
+    }
+)
+"""Variables in [`Refstate`][stagpy.stagyydata.Refstate]."""
+
+SCALES: Mapping[str, Callable[[Scales], float]] = MappingProxyType(
+    {
+        "m": attrgetter("length"),
+        "kg/m3": attrgetter("density"),
+        "kg": attrgetter("mass"),
+        "kg/s": lambda scl: scl.mass / scl.time,
+        "K": attrgetter("temperature"),
+        "W/m2": attrgetter("heat_flux"),
+        "Pa": attrgetter("stress"),
+        "Pa.s": attrgetter("dyn_visc"),
+        "s": attrgetter("time"),
+        "W": attrgetter("power"),
+        "W/(m.K)": attrgetter("th_cond"),
+        "m2/s": attrgetter("th_diff"),
+        "W/m3": attrgetter("heat_production"),
+        "1/s": lambda scl: 1 / scl.time,
+        "K/s": lambda scl: scl.temperature / scl.time,
+        "m/s": attrgetter("velocity"),
+        "m/s2": attrgetter("acceleration"),
+        "tons/yr": lambda scl: scl.mass / scl.time * 3.15e4,
+    }
+)
+"""Scales to make values dimensional, see [`Scales`][stagpy.dimensions.Scales]."""
+
+PREFIXES = ("k", "M", "G")

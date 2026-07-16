@@ -1,2 +1,96 @@
 [build-system]
-requires = ["setuptools", "setuptools_scm", "wheel"]
+requires = ["uv_build~=0.11"]
+build-backend = "uv_build"
+
+[project]
+name = "stagpy"
+version = "0.23.0"
+description = "Tool for StagYY output files processing"
+readme = "README.md"
+authors = [
+    {name = "Adrien Morison", email = "adrien.morison@gmail.com"},
+    {name = "Martina Ulvrova"},
+    {name = "Stéphane Labrosse"},
+]
+maintainers = [
+    {name = "Adrien Morison", email = "adrien.morison@gmail.com"},
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+urls = {homepage = "https://github.com/StagPython/StagPy"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "f90nml>=1.5",
+    "h5py~=3.15",
+    "loam~=0.9.0",
+    "matplotlib~=3.10",
+    "numpy~=2.2",
+    "pandas~=2.3",
+    "rich>=14.2.0",
+    "scipy~=1.15",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.3",
+    "mypy>=1.18.2",
+    "pandas-stubs>=2.3.2.250926",
+]
+doc = [
+    "mkdocs~=1.6.1",
+    "mkdocs-gen-files~=0.5.0",
+    "mkdocs-include-markdown-plugin~=7.1.6",
+    "mkdocs-literate-nav~=0.6.2",
+    "mkdocs-material~=9.6.15",
+    "mkdocstrings[python]~=0.29.1",
+    "black~=25.1",
+]
+
+[project.scripts]
+stagpy = "stagpy.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.mypy]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "f90nml.*",
+    "h5py.*",
+    "mpl_toolkits.*",
+    "scipy.*",
+]
+ignore_missing_imports = true
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+enableTypeIgnoreComments = true
+reportAny = false
+reportIgnoreCommentWithoutRule = false
+reportImplicitOverride = false
+reportImportCycles = false
+reportMissingTypeStubs = false
+reportPrivateUsage = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnusedCallResult = false
+reportUnusedImport = false

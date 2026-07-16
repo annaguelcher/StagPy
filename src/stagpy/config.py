@@ -1,0 +1,261 @@
+# pyright: reportDeprecated=false
+
+"""Define configuration variables for StagPy.
+
+See [stagpy.cli][] for additional definitions related to the command line
+interface.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Sequence
+
+import loam.parsers as lprs
+from loam.base import ConfigBase, Section, entry
+from loam.collections import MaybeEntry, TupleEntry
+from loam.tools import command_flag, path_entry, switch_opt
+
+_indices = TupleEntry(inner_from_toml=lprs.slice_or_int_parser)
+_plots = TupleEntry.wrapping(
+    TupleEntry.wrapping(TupleEntry(str), str_sep="."), str_sep="-"
+)
+
+CONFIG_LOCAL = Path(".stagpy.toml")
+"""Path of local configuration file."""
+
+
+@dataclass
+class Common(Section):
+    """General options."""
+
+    config: bool = command_flag("print config options")
+
+
+@dataclass
+class Core(Section):
+    """Core control."""
+
+    path: Path = path_entry(
+        path=".", cli_short="p", doc="path of StagYY run directory or par file"
+    )
+    read_parameters_dat: bool = switch_opt(True, None, "enable reading parameters.dat")
+    outname: str = entry(val="stagpy", cli_short="n", doc="output file name prefix")
+    shortname: bool = switch_opt(False, None, "output file name is only prefix")
+    timesteps: Sequence[int | slice] = _indices.entry(
+        doc="timesteps slice", in_file=False, cli_short="t"
+    )
+    snapshots: Sequence[int | slice] = _indices.entry(
+        default=[-1], doc="snapshots slice", in_file=False, cli_short="s"
+    )
+
+
+@dataclass
+class Plot(Section):
+    """Plotting."""
+
+    ratio: float | None = MaybeEntry(float).entry(
+        doc="force aspect ratio of field plot", in_file=False
+    )
+    raster: bool = switch_opt(True, None, "rasterize field plots")
+    format: str = entry(val="pdf", doc="figure format (pdf, eps, svg, png)")
+    vmin: float | None = MaybeEntry(float).entry(
+        doc="minimal value on plot", in_file=False
+    )
+    vmax: float | None = MaybeEntry(float).entry(
+        doc="maximal value on plot", in_file=False
+    )
+    cminmax: bool = switch_opt(False, "C", "constant min max across plots")
+    isolines: Sequence[float] = TupleEntry(float).entry(
+        doc="list of isoline values", in_file=False
+    )
+    mplstyle: Sequence[str] = TupleEntry(str).entry(
+        default="stagpy-paper", doc="list of matplotlib styles", in_file=False
+    )
+    xkcd: bool = command_flag("use the xkcd style")
+
+
+@dataclass
+class Scaling(Section):
+    """Dimensionalization."""
+
+    yearins: float = entry(val=3.154e7, in_cli=False, doc="year in seconds")
+    ttransit: float = entry(val=1.78e15, in_cli=False, doc="transit time in My")
+    time_in_y: bool = switch_opt(True, None, "dimensional time is in year")
+    vel_in_cmpy: bool = switch_opt(True, None, "dimensional velocity is in cm/year")
+    factors: Dict[str, str] = entry(
+        val_factory=lambda: {"s": "M", "m": "k", "Pa": "G"},
+        in_cli=False,
+        doc="custom factors",
+    )
+
+
+@dataclass
+class FieldSec(Section):
+    """Field command."""
+
+    plot: Sequence[Sequence[Sequence[str]]] = _plots.entry(
+        default="T,stream", cli_short="o", doc="variables to plot (see stagpy var)"
+    )
+    perturbation: bool = switch_opt(False, None, "plot departure from average profile")
+    shift: int | None = MaybeEntry(int).entry(
+        doc="shift plot horizontally", in_file=False
+    )
+    timelabel: bool = switch_opt(False, None, "add label with time")
+    colorbar: bool = switch_opt(True, None, "add color bar to plot")
+    ix: int | None = MaybeEntry(int).entry(
+        doc="x-index of slice for 3D fields", in_file=False
+    )
+    iy: int | None = MaybeEntry(int).entry(
+        doc="y-index of slice for 3D fields", in_file=False
+    )
+    iz: int | None = MaybeEntry(int).entry(
+        doc="z-index of slice for 3D fields", in_file=False
+    )
+    isocolors: Sequence[str] = TupleEntry(str).entry(doc="list of colors for isolines")
+    cmap: Dict[str, str] = entry(
+        val_factory=lambda: {
+            "T": "RdBu_r",
+            "eta": "viridis_r",
+            "rho": "RdBu",
+            "sII": "plasma_r",
+            "edot": "Reds",
+        },
+        in_cli=False,
+        doc="custom colormaps",
+    )
+
+
+@dataclass
+class RprofSec(Section):
+    """Rprof command."""
+
+    plot: Sequence[Sequence[Sequence[str]]] = _plots.entry(
+        default="Tmean", cli_short="o", doc="variables to plot (see stagpy var)"
+    )
+    style: str = entry(val="-", doc="matplotlib line style")
+    average: bool = switch_opt(False, "a", "plot temporal average")
+    grid: bool = switch_opt(False, "g", "plot grid")
+    depth: bool = switch_opt(False, "d", "depth as vertical axis")
+
+
+@dataclass
+class Time(Section):
+    """Time command."""
+
+    plot: Sequence[Sequence[Sequence[str]]] = _plots.entry(
+        default="Nu_top,Nu_bot.Vrms.Tmean",
+        cli_short="o",
+        doc="variables to plot (see stagpy var)",
+    )
+    style: str = entry(val="-", doc="matplotlib line style")
+    compstat: Sequence[str] = TupleEntry(str).entry(
+        doc="compute mean and rms of listed variables", in_file=False
+    )
+    tstart: float | None = MaybeEntry(float).entry(doc="beginning time", in_file=False)
+    tend: float | None = MaybeEntry(float).entry(doc="end time", in_file=False)
+    fraction: float | None = MaybeEntry(float).entry(
+        doc="ending fraction of series to process", in_file=False
+    )
+    marktimes: Sequence[float] = TupleEntry(float).entry(
+        doc="list of times where to put a mark", in_file=False, cli_short="M"
+    )
+    marksteps: Sequence[int | slice] = _indices.entry(
+        doc="list of steps where to put a mark", in_file=False, cli_short="T"
+    )
+    marksnaps: Sequence[int | slice] = _indices.entry(
+        doc="list of snaps where to put a mark", in_file=False, cli_short="S"
+    )
+
+
+@dataclass
+class Refstate(Section):
+    """Refstate command."""
+
+    plot: Sequence[str] = TupleEntry(str).entry(
+        default="T", cli_short="o", doc="variables to plot (see stagpy var)"
+    )
+    style: str = entry(val="-", doc="matplotlib line style")
+
+
+@dataclass
+class Plates(Section):
+    """Plates command."""
+
+    plot: Sequence[Sequence[Sequence[str]]] = _plots.entry(
+        default="c.T.v2-v2.dv2-v2.topo_top",
+        cli_short="o",
+        doc="variables to plot, can be a surface field, field, or dv2",
+    )
+    field: str = entry(val="eta", doc="field to plot with plates info")
+    stress: bool = switch_opt(
+        False, None, "plot deviatoric stress instead of velocity on field plots"
+    )
+    continents: bool = switch_opt(True, None, "whether to shade continents")
+    vzratio: float = entry(
+        val=0.0, doc="Ratio of mean vzabs used as threshold for plates limits"
+    )
+    nbplates: bool = switch_opt(
+        False, None, "plot number of plates as function of time"
+    )
+    distribution: bool = switch_opt(False, None, "plot plate size distribution")
+    zoom: float | None = MaybeEntry(float).entry(
+        doc="zoom around surface", in_file=False
+    )
+
+
+@dataclass
+class Info(Section):
+    """Info command."""
+
+    output: Sequence[str] = TupleEntry(str).entry(
+        default="time,Tmean,Vrms,Nu_top,Nu_bot",
+        cli_short="o",
+        doc="time series to print",
+    )
+
+
+@dataclass
+class Var(Section):
+    """Var command."""
+
+    field: bool = command_flag("print field variables")
+    sfield: bool = command_flag("print surface field variables")
+    rprof: bool = command_flag("print rprof variables")
+    time: bool = command_flag("print time variables")
+    refstate: bool = command_flag("print refstate variables")
+
+
+@dataclass
+class ConfSection(Section):
+    """Config command."""
+
+    create: bool = command_flag("create config file")
+
+
+@dataclass
+class Completions(Section):
+    """Shell completion scripts."""
+
+    bash: bool = command_flag("generate bash completion")
+    zsh: bool = command_flag("generate zsh completion")
+
+
+@dataclass
+class Config(ConfigBase):
+    """StagPy configuration."""
+
+    common: Common
+    core: Core
+    plot: Plot
+    scaling: Scaling
+    field: FieldSec
+    rprof: RprofSec
+    time: Time
+    refstate: Refstate
+    plates: Plates
+    info: Info
+    var: Var
+    config: ConfSection
+    completions: Completions
